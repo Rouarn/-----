@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 
 namespace OnmyojiTools.Ui
@@ -30,26 +31,27 @@ namespace OnmyojiTools.Ui
         public SwitchControl(bool on)
         {
             _isOn = on;
-            Width = 46;
-            Height = 24;
+            Width = 48;
+            Height = 26;
             Cursor = Cursors.Hand;
             Focusable = false;
             HorizontalAlignment = HorizontalAlignment.Left;
 
             _track = new Border
             {
-                CornerRadius = new CornerRadius(12),
+                CornerRadius = new CornerRadius(13),
                 Background = Theme.BrushFrozen(Theme.TrackOff),
                 BorderThickness = new Thickness(0)
             };
             _thumb = new Ellipse
             {
-                Width = 18,
-                Height = 18,
-                Fill = Theme.BrushFrozen(Color.FromRgb(0xC6, 0xCD, 0xD9)),
+                Width = 20,
+                Height = 20,
+                Fill = Theme.BrushFrozen(Color.FromRgb(0xD4, 0xD9, 0xE3)),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(3, 0, 0, 0)
+                Margin = new Thickness(3, 0, 0, 0),
+                Effect = new DropShadowEffect { BlurRadius = 6, ShadowDepth = 1, Opacity = 0.35, Color = Colors.Black }
             };
             _track.Child = _thumb;
             Child = _track;
@@ -70,7 +72,7 @@ namespace OnmyojiTools.Ui
             else
             {
                 _track.Background = Theme.BrushFrozen(Theme.TrackOff);
-                _thumb.Fill = Theme.BrushFrozen(Color.FromRgb(0x9A, 0xA3, 0xB2));
+                _thumb.Fill = Theme.BrushFrozen(Color.FromRgb(0xB9, 0xC0, 0xCE));
                 _thumb.HorizontalAlignment = HorizontalAlignment.Left;
                 _thumb.Margin = new Thickness(3, 0, 0, 0);
             }
