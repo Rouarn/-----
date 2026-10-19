@@ -532,7 +532,7 @@ namespace OnmyojiTools.Ui
             {
                 btnCloseAll.IsEnabled = true;
                 Thread.Sleep(500);
-                Dispatcher.BeginInvoke(new Action(() =>
+                var op = Dispatcher.BeginInvoke(new Action(() =>
                 {
                     UpdateRunningLabel();
                     RefreshList();
