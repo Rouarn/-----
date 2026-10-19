@@ -52,7 +52,7 @@ namespace OnmyojiTools.Ui
             txtRoot.Text = _config.YysRoot;
 
             // 声音跟随聚焦：常驻监控
-            AudioApi.LogFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "audio_log.txt");
+            AudioApi.LogFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "audio_log.txt");
             _sf = new SoundFocusController();
             timerSound = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             timerSound.Tick += TimerSound_Tick;
@@ -620,7 +620,7 @@ namespace OnmyojiTools.Ui
                 if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
                 {
                     string dir = dlg.SelectedPath;
-                    if (!File.Exists(Path.Combine(dir, "bin", "onmyoji.exe")))
+                    if (!File.Exists(System.IO.Path.Combine(dir, "bin", "onmyoji.exe")))
                     {
                         Log("所选目录未找到 bin\\onmyoji.exe，请重新选择：" + dir);
                         return;
