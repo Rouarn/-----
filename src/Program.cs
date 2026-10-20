@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using OnmyojiTools.App;
@@ -12,6 +13,8 @@ namespace OnmyojiTools
     /// <summary>程序入口：自检模式与 WPF 主程序；集中处理未捕获异常。</summary>
     internal static class Program
     {
+        private static Mutex _singleInstance;
+
         [STAThread]
         private static void Main(string[] args)
         {
@@ -21,6 +24,14 @@ namespace OnmyojiTools
             if (args != null && args.Length > 0 && string.Equals(args[0], "--selftest", StringComparison.OrdinalIgnoreCase))
             {
                 Environment.ExitCode = SelfTest.Run();
+                return;
+            }
+
+            bool createdNew;
+            _singleInstance = new Mutex(true, "OnmyojiTools.SingleInstance", out createdNew);
+            if (!createdNew)
+            {
+                MessageBox.Show("阴阳师工具已经在运行。", "阴阳师工具", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 

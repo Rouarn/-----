@@ -87,7 +87,6 @@
       src\Ui\SwitchControl.cs       自绘开关
       src\Program.cs                入口、全局异常处理、命令行自检
     tools\UiShot.cs   开发辅助：假服务离屏截图与交互冒烟测试（不参与正式构建）
-    ARCHITECTURE.md   分层、资源生命周期、取消与测试说明
     app.manifest      管理员权限清单
     build.bat         一键重新编译（修改源码后双击即可重新生成 exe）
     .gitignore        Git 忽略规则（exe、日志、本机配置等）
@@ -111,5 +110,4 @@
       进程/窗口识别、WASAPI 枚举与声音服务，并写 selftest.log（已被 .gitignore 忽略）
     - UI 冒烟：用假服务编译 tools\UiShot.cs，可离屏截图并执行 26 项交互检查，
       不会操作真实游戏窗口或音量
-    - 架构与资源生命周期说明见 ARCHITECTURE.md
 （内容由AI生成，仅供参考）

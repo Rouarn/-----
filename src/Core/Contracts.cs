@@ -48,6 +48,7 @@ namespace OnmyojiTools.Core
     {
         public int WindowCount { get; set; }
         public int Columns { get; set; }
+        public int MonitorIndex { get; set; }
         public int ProbeWidth { get; set; }
         public int ProbeHeight { get; set; }
         public int Moved { get; set; }
@@ -62,6 +63,16 @@ namespace OnmyojiTools.Core
         public int Graceful { get; set; }
         public int Forced { get; set; }
         public int Failed { get; set; }
+        public bool Canceled { get; set; }
+        public string Error { get; set; }
+    }
+
+    internal sealed class SessionResult : IOperationResult
+    {
+        public int Target { get; set; }
+        public int Columns { get; set; }
+        public LaunchResult Launch { get; set; }
+        public ArrangeResult Arrange { get; set; }
         public bool Canceled { get; set; }
         public string Error { get; set; }
     }
@@ -85,11 +96,12 @@ namespace OnmyojiTools.Core
 
     internal interface IWindowArranger
     {
-        Task<ArrangeResult> ArrangeAsync(int columns, AppLogger logger, CancellationToken cancellationToken);
+        Task<ArrangeResult> ArrangeAsync(int columns, int monitorIndex, AppLogger logger, CancellationToken cancellationToken);
     }
 
     internal interface IGameShutdownService
     {
         Task<CloseResult> CloseAllAsync(AppLogger logger, CancellationToken cancellationToken);
+        Task<CloseResult> CloseAsync(int processId, AppLogger logger, CancellationToken cancellationToken);
     }
 }

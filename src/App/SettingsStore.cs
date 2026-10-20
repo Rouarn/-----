@@ -62,6 +62,30 @@ namespace OnmyojiTools.App
                         case "columns":
                             settings.Columns = ParseInt(value, settings.Columns);
                             break;
+                        case "monitorindex":
+                            settings.MonitorIndex = ParseInt(value, settings.MonitorIndex);
+                            break;
+                        case "backgroundvolumepercent":
+                            settings.BackgroundVolumePercent = ParseInt(value, settings.BackgroundVolumePercent);
+                            break;
+                        case "hotkeyscheme":
+                            settings.HotkeyScheme = ParseInt(value, settings.HotkeyScheme);
+                            break;
+                        case "autoarrangenewwindows":
+                            settings.AutoArrangeNewWindows = ParseBool(value, settings.AutoArrangeNewWindows);
+                            break;
+                        case "autorestartunresponsive":
+                            settings.AutoRestartUnresponsive = ParseBool(value, settings.AutoRestartUnresponsive);
+                            break;
+                        case "compactmode":
+                            settings.CompactMode = ParseBool(value, settings.CompactMode);
+                            break;
+                        case "dimunfocusedwindows":
+                            settings.DimUnfocusedWindows = ParseBool(value, settings.DimUnfocusedWindows);
+                            break;
+                        case "darktheme":
+                            settings.DarkTheme = ParseBool(value, settings.DarkTheme);
+                            break;
                         case "soundfocusenabled":
                             settings.SoundFocusEnabled = ParseBool(value, settings.SoundFocusEnabled);
                             break;
@@ -99,6 +123,14 @@ namespace OnmyojiTools.App
                 builder.AppendLine("GameRoot=" + settings.GameRoot);
                 builder.AppendLine("TargetInstances=" + settings.TargetInstances);
                 builder.AppendLine("Columns=" + settings.Columns);
+                builder.AppendLine("MonitorIndex=" + settings.MonitorIndex);
+                builder.AppendLine("BackgroundVolumePercent=" + settings.BackgroundVolumePercent);
+                builder.AppendLine("HotkeyScheme=" + settings.HotkeyScheme);
+                builder.AppendLine("AutoArrangeNewWindows=" + (settings.AutoArrangeNewWindows ? "true" : "false"));
+                builder.AppendLine("AutoRestartUnresponsive=" + (settings.AutoRestartUnresponsive ? "true" : "false"));
+                builder.AppendLine("CompactMode=" + (settings.CompactMode ? "true" : "false"));
+                builder.AppendLine("DimUnfocusedWindows=" + (settings.DimUnfocusedWindows ? "true" : "false"));
+                builder.AppendLine("DarkTheme=" + (settings.DarkTheme ? "true" : "false"));
                 builder.AppendLine("SoundFocusEnabled=" + (settings.SoundFocusEnabled ? "true" : "false"));
 
                 temp = _path + ".tmp";

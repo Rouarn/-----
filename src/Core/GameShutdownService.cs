@@ -8,7 +8,7 @@ using OnmyojiTools.Interop;
 
 namespace OnmyojiTools.Core
 {
-    /// <summary>优雅关闭全部游戏窗口；确认框会优先走 BM_CLICK，必要时才移动鼠标并立即恢复光标。</summary>
+    /// <summary>优雅关闭游戏窗口；支持全部关闭和单个实例关闭。</summary>
     internal sealed class GameShutdownService : IGameShutdownService
     {
         private const int DialogWaitMilliseconds = 4000;
@@ -40,92 +40,8 @@ namespace OnmyojiTools.Core
                 for (int i = 0; i < games.Count; i++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    GameProcessInfo info = games[i];
-                    Process process = null;
-
-                    try
-                    {
-                        process = Process.GetProcessById(info.ProcessId);
-                        if (process.HasExited) continue;
-
-                        if (info.StartTime.HasValue)
-                        {
-                            DateTime? currentStart = TryGetStartTime(process);
-                            if (currentStart.HasValue && currentStart.Value != info.StartTime.Value)
-                            {
-                                logger.Log(string.Format("[PID {0}] 已被其他进程复用，跳过。", info.ProcessId));
-                                continue;
-                            }
-                        }
-
-                        bool requested = process.CloseMainWindow();
-                        if (!requested)
-                            logger.Log(string.Format("[PID {0}] 未找到主窗口，继续等待其自行退出。", info.ProcessId));
-
-                        bool confirmClicked = false;
-                        DateTime deadline = DateTime.UtcNow.AddMilliseconds(DialogWaitMilliseconds);
-                        while (!process.HasExited && DateTime.UtcNow < deadline)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            IntPtr dialog = FindExitDialog(info.ProcessId);
-                            if (dialog != IntPtr.Zero)
-                            {
-                                if (await TryConfirmExitAsync(dialog, cancellationToken).ConfigureAwait(false))
-                                {
-                                    confirmClicked = true;
-                                    break;
-                                }
-                            }
-                            await Task.Delay(150, cancellationToken).ConfigureAwait(false);
-                        }
-
-                        if (confirmClicked)
-                            logger.Log(string.Format("[PID {0}] 已点击退出确认。", info.ProcessId));
-
-                        if (await WaitForExitAsync(process, GracefulWaitMilliseconds, cancellationToken).ConfigureAwait(false))
-                        {
-                            result.Graceful++;
-                            logger.Log(string.Format("[PID {0}] 已优雅关闭。", info.ProcessId));
-                            continue;
-                        }
-
-                        try
-                        {
-                            process.Kill();
-                        }
-                        catch (Exception ex)
-                        {
-                            result.Failed++;
-                            logger.Log(string.Format("[PID {0}] 强制结束失败：{1}", info.ProcessId, ex.Message));
-                            continue;
-                        }
-
-                        if (await WaitForExitAsync(process, ForcedWaitMilliseconds, cancellationToken).ConfigureAwait(false))
-                        {
-                            result.Forced++;
-                            logger.Log(string.Format("[PID {0}] 超时未退出，已强制结束。", info.ProcessId));
-                        }
-                        else
-                        {
-                            result.Failed++;
-                            logger.Log(string.Format("[PID {0}] 仍未能结束。", info.ProcessId));
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        result.Canceled = true;
-                        logger.Log("关闭操作已取消。");
+                    if (await CloseOneAsync(games[i], result, logger, cancellationToken).ConfigureAwait(false))
                         break;
-                    }
-                    catch (Exception ex)
-                    {
-                        result.Failed++;
-                        logger.Log(string.Format("[PID {0}] 关闭失败：{1}", info.ProcessId, ex.Message));
-                    }
-                    finally
-                    {
-                        if (process != null) process.Dispose();
-                    }
                 }
 
                 logger.Log(string.Format("关闭流程结束：优雅 {0} 个，强制 {1} 个，失败 {2} 个。",
@@ -143,6 +59,137 @@ namespace OnmyojiTools.Core
             }
 
             return result;
+        }
+
+        public async Task<CloseResult> CloseAsync(int processId, AppLogger logger, CancellationToken cancellationToken)
+        {
+            CloseResult result = new CloseResult { Total = 1 };
+            try
+            {
+                GameProcessInfo found = null;
+                var games = _processes.GetRunningGames();
+                for (int i = 0; i < games.Count; i++)
+                {
+                    if (games[i].ProcessId != processId) continue;
+                    found = games[i];
+                    break;
+                }
+
+                if (found == null)
+                {
+                    result.Failed = 1;
+                    logger.Log(string.Format("[PID {0}] 未找到正在运行的游戏实例。", processId));
+                    return result;
+                }
+
+                logger.Log(string.Format("开始关闭单个实例 PID {0}...", processId));
+                await CloseOneAsync(found, result, logger, cancellationToken).ConfigureAwait(false);
+                logger.Log(string.Format("关闭实例 PID {0} 结束：优雅 {1}，强制 {2}，失败 {3}。",
+                    processId, result.Graceful, result.Forced, result.Failed));
+            }
+            catch (OperationCanceledException)
+            {
+                result.Canceled = true;
+                logger.Log("关闭实例已取消。");
+            }
+            catch (Exception ex)
+            {
+                result.Error = ex.Message;
+                logger.LogError("关闭实例失败", ex);
+            }
+
+            return result;
+        }
+
+        /// <summary>关闭一个实例；返回 true 表示操作已取消。</summary>
+        private static async Task<bool> CloseOneAsync(GameProcessInfo info, CloseResult result,
+            AppLogger logger, CancellationToken cancellationToken)
+        {
+            Process process = null;
+            try
+            {
+                process = Process.GetProcessById(info.ProcessId);
+                if (process.HasExited) return false;
+
+                if (info.StartTime.HasValue)
+                {
+                    DateTime? currentStart = TryGetStartTime(process);
+                    if (currentStart.HasValue && currentStart.Value != info.StartTime.Value)
+                    {
+                        logger.Log(string.Format("[PID {0}] 已被其他进程复用，跳过。", info.ProcessId));
+                        return false;
+                    }
+                }
+
+                bool requested = process.CloseMainWindow();
+                if (!requested)
+                    logger.Log(string.Format("[PID {0}] 未找到主窗口，继续等待其自行退出。", info.ProcessId));
+
+                bool confirmClicked = false;
+                DateTime deadline = DateTime.UtcNow.AddMilliseconds(DialogWaitMilliseconds);
+                while (!process.HasExited && DateTime.UtcNow < deadline)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    IntPtr dialog = FindExitDialog(info.ProcessId);
+                    if (dialog != IntPtr.Zero)
+                    {
+                        if (await TryConfirmExitAsync(dialog, cancellationToken).ConfigureAwait(false))
+                        {
+                            confirmClicked = true;
+                            break;
+                        }
+                    }
+                    await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+                }
+
+                if (confirmClicked)
+                    logger.Log(string.Format("[PID {0}] 已点击退出确认。", info.ProcessId));
+
+                if (await WaitForExitAsync(process, GracefulWaitMilliseconds, cancellationToken).ConfigureAwait(false))
+                {
+                    result.Graceful++;
+                    logger.Log(string.Format("[PID {0}] 已优雅关闭。", info.ProcessId));
+                    return false;
+                }
+
+                try
+                {
+                    process.Kill();
+                }
+                catch (Exception ex)
+                {
+                    result.Failed++;
+                    logger.Log(string.Format("[PID {0}] 强制结束失败：{1}", info.ProcessId, ex.Message));
+                    return false;
+                }
+
+                if (await WaitForExitAsync(process, ForcedWaitMilliseconds, cancellationToken).ConfigureAwait(false))
+                {
+                    result.Forced++;
+                    logger.Log(string.Format("[PID {0}] 超时未退出，已强制结束。", info.ProcessId));
+                }
+                else
+                {
+                    result.Failed++;
+                    logger.Log(string.Format("[PID {0}] 仍未能结束。", info.ProcessId));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                result.Canceled = true;
+                logger.Log("关闭操作已取消。");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                result.Failed++;
+                logger.Log(string.Format("[PID {0}] 关闭失败：{1}", info.ProcessId, ex.Message));
+            }
+            finally
+            {
+                if (process != null) process.Dispose();
+            }
+            return false;
         }
 
         private static async Task<bool> WaitForExitAsync(Process process, int timeoutMilliseconds, CancellationToken cancellationToken)
@@ -226,12 +273,10 @@ namespace OnmyojiTools.Core
             IntPtr button = FindConfirmButton(dialog);
             if (button == IntPtr.Zero) return false;
 
-            // 首选消息点击：不需要移动用户的鼠标
             NativeMethods.SendMessage(button, NativeMethods.BM_CLICK, IntPtr.Zero, IntPtr.Zero);
             await Task.Delay(250, cancellationToken).ConfigureAwait(false);
             if (!NativeMethods.IsWindow(dialog)) return true;
 
-            // 少数客户端不响应 BM_CLICK，才退回真实鼠标点击；完成后立即还原光标
             NativeMethods.RECT buttonRect;
             if (!NativeMethods.GetWindowRect(button, out buttonRect)) return false;
             if (buttonRect.Width <= 0 || buttonRect.Height <= 0) return false;

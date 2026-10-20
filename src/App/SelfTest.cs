@@ -32,6 +32,10 @@ namespace OnmyojiTools.App
                 TestGridLayout(check);
                 TestWindowMatcher(check);
                 TestSettingsStore(check);
+                TestLayoutPresets(check);
+                TestMonitors(check);
+                TestWindowPlacements(check);
+                TestInstanceLabels(check);
 
                 GameProcessService processes = new GameProcessService();
                 GameWindowService windows = new GameWindowService();
@@ -60,9 +64,52 @@ namespace OnmyojiTools.App
                 {
                     sound.Start();
                     System.Threading.Thread.Sleep(700);
+
+                    if (running.Count > 0)
+                    {
+                        int pid = running[0].ProcessId;
+                        sound.SetInstanceVolume(pid, 0.5f);
+                        check("单实例手动音量写入", recording.LastVolumes != null &&
+                            recording.LastVolumes.ContainsKey(pid) &&
+                            Math.Abs(recording.LastVolumes[pid] - 0.5f) < 0.01f);
+                    }
+                    else
+                    {
+                        check("单实例手动音量写入", true);
+                    }
+
                     sound.Stop();
                 }
                 check("声音跟随服务扫描真实进程", recording.ApplyCalls > 0);
+                if (running.Count > 0)
+                {
+                    check("关闭声音跟随后恢复原始音量", recording.LastVolumes != null &&
+                        recording.LastVolumes.ContainsKey(running[0].ProcessId) &&
+                        Math.Abs(recording.LastVolumes[running[0].ProcessId] - 0.8f) < 0.01f);
+                }
+                else
+                {
+                    check("关闭声音跟随后恢复原始音量", true);
+                }
+
+                using (HealthMonitorService health = new HealthMonitorService(windows, new AppLogger()))
+                {
+                    health.Start();
+                    System.Threading.Thread.Sleep(300);
+                    health.Stop();
+                }
+                check("健康监控启停不抛异常", true);
+
+                try
+                {
+                    StartupManager.IsEnabled();
+                    check("开机自启状态可读", true);
+                }
+                catch (Exception ex)
+                {
+                    check("开机自启状态可读", false);
+                    output.AppendLine("       " + ex.Message);
+                }
 
                 GameLauncher launcher = new GameLauncher(processes);
                 AppLogger launcherLogger = new AppLogger();
@@ -158,6 +205,13 @@ namespace OnmyojiTools.App
                     GameRoot = gameRoot,
                     TargetInstances = 5,
                     Columns = 3,
+                    MonitorIndex = 1,
+                    BackgroundVolumePercent = 25,
+                    HotkeyScheme = 1,
+                    AutoRestartUnresponsive = true,
+                    CompactMode = true,
+                    DimUnfocusedWindows = true,
+                    DarkTheme = true,
                     SoundFocusEnabled = false
                 };
 
@@ -167,6 +221,13 @@ namespace OnmyojiTools.App
                 check("配置往返：游戏目录", loaded.GameRoot == gameRoot);
                 check("配置往返：目标开数", loaded.TargetInstances == 5);
                 check("配置往返：列数", loaded.Columns == 3);
+                check("配置往返：显示器", loaded.MonitorIndex == 1);
+                check("配置往返：失焦音量", loaded.BackgroundVolumePercent == 25);
+                check("配置往返：快捷键方案", loaded.HotkeyScheme == 1);
+                check("配置往返：自动重启", loaded.AutoRestartUnresponsive);
+                check("配置往返：紧凑模式", loaded.CompactMode);
+                check("配置往返：窗口透明度", loaded.DimUnfocusedWindows);
+                check("配置往返：深色主题", loaded.DarkTheme);
                 check("配置往返：声音开关", !loaded.SoundFocusEnabled);
 
                 Directory.CreateDirectory(temp);
@@ -189,17 +250,133 @@ namespace OnmyojiTools.App
             }
         }
 
+        private static void TestLayoutPresets(Action<string, bool> check)
+        {
+            string temp = Path.Combine(Path.GetTempPath(), "yys-preset-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                LayoutPresetStore store = new LayoutPresetStore(Path.Combine(temp, "layouts.ini"));
+                List<LayoutPreset> presets = new List<LayoutPreset>();
+                presets.Add(new LayoutPreset { Name = "日常 4 开", Columns = 4, MonitorIndex = 1 });
+                presets.Add(new LayoutPreset { Name = "双开", Columns = 2, MonitorIndex = 0 });
+                string error;
+                check("布局预设保存成功", store.Save(presets, out error));
+
+                List<LayoutPreset> loaded = store.Load();
+                check("布局预设数量往返", loaded.Count == 2);
+                check("布局预设名称往返", loaded.Count > 0 && loaded[0].Name == "日常 4 开");
+                check("布局预设列数往返", loaded.Count > 0 && loaded[0].Columns == 4);
+                check("布局预设显示器往返", loaded.Count > 0 && loaded[0].MonitorIndex == 1);
+                check("拒绝非法预设名", !LayoutPresetStore.IsValidName("[bad]"));
+            }
+            catch (Exception ex)
+            {
+                check("布局预设测试不抛异常", false);
+                check("布局预设测试异常：" + ex.Message, false);
+            }
+            finally
+            {
+                try { if (Directory.Exists(temp)) Directory.Delete(temp, true); } catch { }
+            }
+        }
+
+        private static void TestMonitors(Action<string, bool> check)
+        {
+            try
+            {
+                MonitorService monitors = new MonitorService();
+                IReadOnlyList<MonitorInfo> list = monitors.GetMonitors();
+                check("枚举显示器不抛异常", list.Count > 0);
+                check("显示器工作区有效", list.Count > 0 && !list[0].WorkArea.IsEmpty);
+            }
+            catch (Exception ex)
+            {
+                check("枚举显示器不抛异常", false);
+                check("显示器枚举异常：" + ex.Message, false);
+            }
+        }
+
+        private static void TestWindowPlacements(Action<string, bool> check)
+        {
+            string temp = Path.Combine(Path.GetTempPath(), "yys-placement-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                WindowPlacementStore store = new WindowPlacementStore(Path.Combine(temp, "placements.ini"));
+                List<GameWindowInfo> windows = new List<GameWindowInfo>();
+                windows.Add(new GameWindowInfo
+                {
+                    Title = "阴阳师 - 测试",
+                    Bounds = new NativeMethods.RECT { Left = 10, Top = 20, Right = 810, Bottom = 620 }
+                });
+                string error;
+                check("窗口位置保存成功", store.Save(windows, out error));
+                Dictionary<string, NativeMethods.RECT> loaded = store.Load();
+                NativeMethods.RECT bounds;
+                check("窗口位置数量往返", loaded.Count == 1);
+                check("窗口位置坐标往返", loaded.TryGetValue("阴阳师 - 测试", out bounds) &&
+                    bounds.Left == 10 && bounds.Top == 20 && bounds.Width == 800 && bounds.Height == 600);
+            }
+            catch (Exception ex)
+            {
+                check("窗口位置测试不抛异常", false);
+                check("窗口位置测试异常：" + ex.Message, false);
+            }
+            finally
+            {
+                try { if (Directory.Exists(temp)) Directory.Delete(temp, true); } catch { }
+            }
+        }
+
+        private static void TestInstanceLabels(Action<string, bool> check)
+        {
+            string temp = Path.Combine(Path.GetTempPath(), "yys-label-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                InstanceLabelStore store = new InstanceLabelStore(Path.Combine(temp, "labels.ini"));
+                string error;
+                check("实例标签保存成功", store.Set("阴阳师 - 测试", "主号", out error));
+                check("实例标签读取", store.Get("阴阳师 - 测试") == "主号");
+                check("实例标签清除", store.Set("阴阳师 - 测试", "", out error) &&
+                    string.IsNullOrEmpty(store.Get("阴阳师 - 测试")));
+            }
+            catch (Exception ex)
+            {
+                check("实例标签测试不抛异常", false);
+                check("实例标签测试异常：" + ex.Message, false);
+            }
+            finally
+            {
+                try { if (Directory.Exists(temp)) Directory.Delete(temp, true); } catch { }
+            }
+        }
+
         private sealed class RecordingAudioService : IAudioSessionService
         {
             public int ApplyCalls;
+            public Dictionary<int, float> LastVolumes;
 
             public HashSet<int> ApplyVolumes(IDictionary<int, float> desiredVolumes)
             {
                 System.Threading.Interlocked.Increment(ref ApplyCalls);
+                LastVolumes = new Dictionary<int, float>();
                 HashSet<int> applied = new HashSet<int>();
                 if (desiredVolumes != null)
-                    foreach (int processId in desiredVolumes.Keys) applied.Add(processId);
+                {
+                    foreach (int processId in desiredVolumes.Keys)
+                    {
+                        applied.Add(processId);
+                        LastVolumes[processId] = desiredVolumes[processId];
+                    }
+                }
                 return applied;
+            }
+
+            public Dictionary<int, float> GetVolumes(IEnumerable<int> processIds)
+            {
+                Dictionary<int, float> volumes = new Dictionary<int, float>();
+                if (processIds != null)
+                    foreach (int processId in processIds) volumes[processId] = 0.8f;
+                return volumes;
             }
         }
     }

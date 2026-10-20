@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using OnmyojiTools.Diagnostics;
@@ -14,17 +15,20 @@ namespace OnmyojiTools.Core
         private const int PlacementDelayMilliseconds = 300;
 
         private readonly IGameWindowService _windows;
+        private readonly IMonitorService _monitors;
 
-        public WindowArrangementService(IGameWindowService windows)
+        public WindowArrangementService(IGameWindowService windows, IMonitorService monitors = null)
         {
             _windows = windows;
+            _monitors = monitors ?? new MonitorService();
         }
 
-        public async Task<ArrangeResult> ArrangeAsync(int columns, AppLogger logger, CancellationToken cancellationToken)
+        public async Task<ArrangeResult> ArrangeAsync(int columns, int monitorIndex, AppLogger logger, CancellationToken cancellationToken)
         {
             ArrangeResult result = new ArrangeResult();
             columns = InputValidation.Clamp(columns, InputValidation.MinColumns, InputValidation.MaxColumns);
             result.Columns = columns;
+            result.MonitorIndex = monitorIndex;
 
             try
             {
@@ -37,8 +41,11 @@ namespace OnmyojiTools.Core
                     return result;
                 }
 
-                NativeMethods.RECT workArea;
-                if (!NativeMethods.TryGetWorkArea(out workArea) || workArea.IsEmpty)
+                IReadOnlyList<MonitorInfo> monitors = _monitors.GetMonitors();
+                if (monitorIndex < 0 || monitorIndex >= monitors.Count) monitorIndex = 0;
+                result.MonitorIndex = monitorIndex;
+                NativeMethods.RECT workArea = monitors.Count > 0 ? monitors[monitorIndex].WorkArea : new NativeMethods.RECT();
+                if (workArea.IsEmpty)
                 {
                     workArea = new NativeMethods.RECT
                     {
@@ -47,12 +54,12 @@ namespace OnmyojiTools.Core
                         Right = Math.Max(1, NativeMethods.GetSystemMetrics(NativeMethods.SM_CXSCREEN)),
                         Bottom = Math.Max(1, NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN))
                     };
-                    logger.Log("警告：读取系统工作区失败，已回退到整屏尺寸。");
+                    logger.Log("警告：读取显示器工作区失败，已回退到整屏尺寸。");
                 }
 
                 GridLayout layout = GridLayout.Create(windows.Count, columns, workArea);
-                logger.Log(string.Format("开始排列 {0} 个窗口，每行 {1} 个，工作区 {2}×{3}。",
-                    windows.Count, columns, workArea.Width, workArea.Height));
+                logger.Log(string.Format("开始排列 {0} 个窗口，每行 {1} 个，目标显示器 {2}，工作区 {3}×{4}。",
+                    windows.Count, columns, monitorIndex + 1, workArea.Width, workArea.Height));
                 logger.Log("正在探测客户端接受的窗口尺寸...");
 
                 ProbeResult probe = await ProbeAsync(windows[0].Handle, layout, cancellationToken).ConfigureAwait(false);

@@ -23,38 +23,102 @@ namespace OnmyojiTools.Ui
     internal static class Theme
     {
         // ---- 纸面与墨色 ----
-        public static readonly Color PaperTop = Color.FromRgb(0xF9, 0xF4, 0xEB);
-        public static readonly Color PaperBottom = Color.FromRgb(0xEF, 0xE6, 0xD6);
-        public static readonly Color Surface = Color.FromRgb(0xFC, 0xFA, 0xF5);
-        public static readonly Color SurfaceSoft = Color.FromRgb(0xF4, 0xED, 0xE1);
-        public static readonly Color SurfaceHover = Color.FromRgb(0xF2, 0xEA, 0xDD);
-        public static readonly Color InputBg = Color.FromRgb(0xFF, 0xFD, 0xF8);
+        public static Color PaperTop = Color.FromRgb(0xF9, 0xF4, 0xEB);
+        public static Color PaperBottom = Color.FromRgb(0xEF, 0xE6, 0xD6);
+        public static Color Surface = Color.FromRgb(0xFC, 0xFA, 0xF5);
+        public static Color SurfaceSoft = Color.FromRgb(0xF4, 0xED, 0xE1);
+        public static Color SurfaceHover = Color.FromRgb(0xF2, 0xEA, 0xDD);
+        public static Color InputBg = Color.FromRgb(0xFF, 0xFD, 0xF8);
 
-        public static readonly Color Ink = Color.FromRgb(0x1D, 0x1B, 0x18);
-        public static readonly Color InkSoft = Color.FromRgb(0x45, 0x41, 0x3A);
-        public static readonly Color TextSub = Color.FromRgb(0x6B, 0x63, 0x57);
-        public static readonly Color TextMuted = Color.FromRgb(0x8C, 0x82, 0x73);
+        public static Color Ink = Color.FromRgb(0x1D, 0x1B, 0x18);
+        public static Color InkSoft = Color.FromRgb(0x45, 0x41, 0x3A);
+        public static Color TextSub = Color.FromRgb(0x6B, 0x63, 0x57);
+        public static Color TextMuted = Color.FromRgb(0x8C, 0x82, 0x73);
 
-        public static readonly Color Line = Color.FromRgb(0xE3, 0xD8, 0xC7);
-        public static readonly Color LineStrong = Color.FromRgb(0xD2, 0xC5, 0xB0);
+        public static Color Line = Color.FromRgb(0xE3, 0xD8, 0xC7);
+        public static Color LineStrong = Color.FromRgb(0xD2, 0xC5, 0xB0);
 
         // ---- 朱砂与金 ----
-        public static readonly Color Accent = Color.FromRgb(0xC0, 0x45, 0x2C);
-        public static readonly Color AccentHover = Color.FromRgb(0xA8, 0x37, 0x1F);
-        public static readonly Color AccentPressed = Color.FromRgb(0x8E, 0x2C, 0x18);
-        public static readonly Color AccentSoft = Color.FromRgb(0xF7, 0xE4, 0xDC);
-        public static readonly Color AccentLine = Color.FromRgb(0xE8, 0xC3, 0xB6);
-        public static readonly Color Gold = Color.FromRgb(0xA6, 0x7C, 0x2E);
+        public static Color Accent = Color.FromRgb(0xC0, 0x45, 0x2C);
+        public static Color AccentHover = Color.FromRgb(0xA8, 0x37, 0x1F);
+        public static Color AccentPressed = Color.FromRgb(0x8E, 0x2C, 0x18);
+        public static Color AccentSoft = Color.FromRgb(0xF7, 0xE4, 0xDC);
+        public static Color AccentLine = Color.FromRgb(0xE8, 0xC3, 0xB6);
+        public static Color Gold = Color.FromRgb(0xA6, 0x7C, 0x2E);
 
-        public static readonly Color Green = Color.FromRgb(0x4F, 0x7A, 0x58);
-        public static readonly Color GreenSoft = Color.FromRgb(0xE4, 0xED, 0xE3);
-        public static readonly Color Amber = Color.FromRgb(0xA5, 0x74, 0x1F);
+        public static Color Green = Color.FromRgb(0x4F, 0x7A, 0x58);
+        public static Color GreenSoft = Color.FromRgb(0xE4, 0xED, 0xE3);
+        public static Color Amber = Color.FromRgb(0xA5, 0x74, 0x1F);
 
         // ---- 终端 ----
-        public static readonly Color TerminalBg = Color.FromRgb(0x19, 0x17, 0x14);
-        public static readonly Color TerminalLine = Color.FromRgb(0x2C, 0x27, 0x21);
-        public static readonly Color TerminalText = Color.FromRgb(0xE4, 0xDC, 0xCC);
-        public static readonly Color TerminalDim = Color.FromRgb(0x93, 0x89, 0x79);
+        public static Color TerminalBg = Color.FromRgb(0x19, 0x17, 0x14);
+        public static Color TerminalLine = Color.FromRgb(0x2C, 0x27, 0x21);
+        public static Color TerminalText = Color.FromRgb(0xE4, 0xDC, 0xCC);
+        public static Color TerminalDim = Color.FromRgb(0x93, 0x89, 0x79);
+
+        public static bool IsDark { get; private set; }
+
+        /// <summary>切换调色板；已存在的控件不会自动变色，需要在界面重建前调用。</summary>
+        public static void SetDark(bool dark)
+        {
+            IsDark = dark;
+            if (dark)
+            {
+                PaperTop = Color.FromRgb(0x18, 0x16, 0x13);
+                PaperBottom = Color.FromRgb(0x22, 0x1E, 0x19);
+                Surface = Color.FromRgb(0x25, 0x21, 0x1C);
+                SurfaceSoft = Color.FromRgb(0x2D, 0x28, 0x21);
+                SurfaceHover = Color.FromRgb(0x36, 0x2F, 0x27);
+                InputBg = Color.FromRgb(0x1D, 0x1A, 0x16);
+                Ink = Color.FromRgb(0xF2, 0xE9, 0xD9);
+                InkSoft = Color.FromRgb(0xD9, 0xCD, 0xB9);
+                TextSub = Color.FromRgb(0xB8, 0xAB, 0x98);
+                TextMuted = Color.FromRgb(0x8C, 0x81, 0x72);
+                Line = Color.FromRgb(0x3A, 0x33, 0x2B);
+                LineStrong = Color.FromRgb(0x4A, 0x41, 0x36);
+                Accent = Color.FromRgb(0xD1, 0x5A, 0x3F);
+                AccentHover = Color.FromRgb(0xE0, 0x6B, 0x4E);
+                AccentPressed = Color.FromRgb(0xB9, 0x47, 0x2E);
+                AccentSoft = Color.FromRgb(0x3A, 0x21, 0x1B);
+                AccentLine = Color.FromRgb(0x62, 0x35, 0x2A);
+                Gold = Color.FromRgb(0xD0, 0xA1, 0x4A);
+                Green = Color.FromRgb(0x6E, 0x9E, 0x78);
+                GreenSoft = Color.FromRgb(0x24, 0x30, 0x27);
+                Amber = Color.FromRgb(0xD0, 0xA1, 0x4A);
+                TerminalBg = Color.FromRgb(0x0E, 0x0D, 0x0B);
+                TerminalLine = Color.FromRgb(0x29, 0x24, 0x1E);
+                TerminalText = Color.FromRgb(0xE4, 0xDC, 0xCC);
+                TerminalDim = Color.FromRgb(0x9C, 0x92, 0x82);
+            }
+            else
+            {
+                PaperTop = Color.FromRgb(0xF9, 0xF4, 0xEB);
+                PaperBottom = Color.FromRgb(0xEF, 0xE6, 0xD6);
+                Surface = Color.FromRgb(0xFC, 0xFA, 0xF5);
+                SurfaceSoft = Color.FromRgb(0xF4, 0xED, 0xE1);
+                SurfaceHover = Color.FromRgb(0xF2, 0xEA, 0xDD);
+                InputBg = Color.FromRgb(0xFF, 0xFD, 0xF8);
+                Ink = Color.FromRgb(0x1D, 0x1B, 0x18);
+                InkSoft = Color.FromRgb(0x45, 0x41, 0x3A);
+                TextSub = Color.FromRgb(0x6B, 0x63, 0x57);
+                TextMuted = Color.FromRgb(0x8C, 0x82, 0x73);
+                Line = Color.FromRgb(0xE3, 0xD8, 0xC7);
+                LineStrong = Color.FromRgb(0xD2, 0xC5, 0xB0);
+                Accent = Color.FromRgb(0xC0, 0x45, 0x2C);
+                AccentHover = Color.FromRgb(0xA8, 0x37, 0x1F);
+                AccentPressed = Color.FromRgb(0x8E, 0x2C, 0x18);
+                AccentSoft = Color.FromRgb(0xF7, 0xE4, 0xDC);
+                AccentLine = Color.FromRgb(0xE8, 0xC3, 0xB6);
+                Gold = Color.FromRgb(0xA6, 0x7C, 0x2E);
+                Green = Color.FromRgb(0x4F, 0x7A, 0x58);
+                GreenSoft = Color.FromRgb(0xE4, 0xED, 0xE3);
+                Amber = Color.FromRgb(0xA5, 0x74, 0x1F);
+                TerminalBg = Color.FromRgb(0x19, 0x17, 0x14);
+                TerminalLine = Color.FromRgb(0x2C, 0x27, 0x21);
+                TerminalText = Color.FromRgb(0xE4, 0xDC, 0xCC);
+                TerminalDim = Color.FromRgb(0x93, 0x89, 0x79);
+            }
+        }
 
         public static readonly FontFamily FontUI = new FontFamily("Microsoft YaHei UI");
         public static readonly FontFamily FontMono = new FontFamily("Consolas");
@@ -248,11 +312,15 @@ namespace OnmyojiTools.Ui
                     pressBg = B(Color.FromRgb(0xEB, 0xE2, 0xD3)); pressBorder = B(Color.FromRgb(0xB5, 0xA4, 0x89)); pressFg = B(Ink);
                     break;
                 case ButtonKind.Danger:
-                    b.Background = B(Color.FromRgb(0xFB, 0xF1, 0xEC));
+                    b.Background = B(IsDark ? Color.FromRgb(0x3A, 0x21, 0x1B) : Color.FromRgb(0xFB, 0xF1, 0xEC));
                     b.Foreground = B(Accent);
                     b.BorderBrush = B(AccentLine);
-                    hoverBg = B(Color.FromRgb(0xF6, 0xE1, 0xD9)); hoverBorder = B(Color.FromRgb(0xD9, 0x9F, 0x90)); hoverFg = B(AccentHover);
-                    pressBg = B(Color.FromRgb(0xEF, 0xD2, 0xC7)); pressBorder = B(AccentHover); pressFg = B(AccentPressed);
+                    hoverBg = B(IsDark ? Color.FromRgb(0x4A, 0x2A, 0x22) : Color.FromRgb(0xF6, 0xE1, 0xD9));
+                    hoverBorder = B(IsDark ? Color.FromRgb(0x7A, 0x42, 0x33) : Color.FromRgb(0xD9, 0x9F, 0x90));
+                    hoverFg = B(AccentHover);
+                    pressBg = B(IsDark ? Color.FromRgb(0x55, 0x2F, 0x25) : Color.FromRgb(0xEF, 0xD2, 0xC7));
+                    pressBorder = B(AccentHover);
+                    pressFg = B(AccentPressed);
                     break;
                 case ButtonKind.OnDark:
                     b.Background = Brushes.Transparent;
@@ -444,6 +512,199 @@ namespace OnmyojiTools.Ui
             };
             SpellCheck.SetIsEnabled(t, false);
             return t;
+        }
+
+        public static ComboBox MakeComboBox(double width)
+        {
+            ComboBox box = new ComboBox
+            {
+                Width = width,
+                Height = 32,
+                FontFamily = FontUI,
+                FontSize = 11,
+                Foreground = B(Ink),
+                Background = B(InputBg),
+                BorderBrush = B(Line),
+                BorderThickness = new Thickness(1),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                FocusVisualStyle = null,
+                SnapsToDevicePixels = true,
+                Template = ComboBoxTemplate(),
+                ItemContainerStyle = ComboBoxItemStyle()
+            };
+            return box;
+        }
+
+        private static string Hex(Color color)
+        {
+            return "#" + color.R.ToString("X2") + color.G.ToString("X2") + color.B.ToString("X2");
+        }
+
+        private static ControlTemplate ComboBoxTemplate()
+        {
+            string xaml =
+                "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' " +
+                "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='{x:Type ComboBox}'>" +
+                "<Grid>" +
+                "<ToggleButton Focusable='False' ClickMode='Press' " +
+                "IsChecked='{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}'>" +
+                "<ToggleButton.Template><ControlTemplate TargetType='{x:Type ToggleButton}'>" +
+                "<Border x:Name='Bd' Background='" + Hex(InputBg) + "' BorderBrush='" + Hex(Line) +
+                "' BorderThickness='1' CornerRadius='3'>" +
+                "<Path Data='M 0 0 L 4 4 L 8 0' Stroke='" + Hex(TextSub) +
+                "' StrokeThickness='1.3' HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,11,0'/>" +
+                "</Border>" +
+                "<ControlTemplate.Triggers>" +
+                "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='Bd' Property='Background' Value='" +
+                Hex(SurfaceHover) + "'/></Trigger>" +
+                "<Trigger Property='IsChecked' Value='True'><Setter TargetName='Bd' Property='BorderBrush' Value='" +
+                Hex(AccentLine) + "'/></Trigger>" +
+                "</ControlTemplate.Triggers>" +
+                "</ControlTemplate></ToggleButton.Template></ToggleButton>" +
+                "<ContentPresenter Margin='10,0,30,0' VerticalAlignment='Center' IsHitTestVisible='False' " +
+                "Content='{TemplateBinding SelectionBoxItem}' " +
+                "ContentTemplate='{TemplateBinding SelectionBoxItemTemplate}' " +
+                "ContentStringFormat='{TemplateBinding SelectionBoxItemStringFormat}'/>" +
+                "<Popup x:Name='PART_Popup' Placement='Bottom' IsOpen='{TemplateBinding IsDropDownOpen}' " +
+                "AllowsTransparency='True' Focusable='False' PopupAnimation='Fade'>" +
+                "<Border Background='" + Hex(Surface) + "' BorderBrush='" + Hex(LineStrong) +
+                "' BorderThickness='1' CornerRadius='3' Padding='4' " +
+                "MinWidth='{TemplateBinding ActualWidth}' MaxHeight='260'>" +
+                "<ScrollViewer VerticalScrollBarVisibility='Auto' HorizontalScrollBarVisibility='Disabled'>" +
+                "<ItemsPresenter/></ScrollViewer></Border></Popup>" +
+                "</Grid></ControlTemplate>";
+            return (ControlTemplate)XamlReader.Parse(xaml);
+        }
+
+        private static Style ComboBoxItemStyle()
+        {
+            string xaml =
+                "<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' " +
+                "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='{x:Type ComboBoxItem}'>" +
+                "<Setter Property='FontFamily' Value='Microsoft YaHei UI'/>" +
+                "<Setter Property='FontSize' Value='11'/>" +
+                "<Setter Property='Foreground' Value='" + Hex(Ink) + "'/>" +
+                "<Setter Property='Padding' Value='9,6'/>" +
+                "<Setter Property='Template'><Setter.Value>" +
+                "<ControlTemplate TargetType='{x:Type ComboBoxItem}'>" +
+                "<Border x:Name='Bd' Background='Transparent' CornerRadius='2' Padding='{TemplateBinding Padding}'>" +
+                "<ContentPresenter/></Border>" +
+                "<ControlTemplate.Triggers>" +
+                "<Trigger Property='IsHighlighted' Value='True'><Setter TargetName='Bd' Property='Background' Value='" +
+                Hex(SurfaceHover) + "'/></Trigger>" +
+                "<Trigger Property='IsSelected' Value='True'><Setter TargetName='Bd' Property='Background' Value='" +
+                Hex(AccentSoft) + "'/></Trigger>" +
+                "</ControlTemplate.Triggers></ControlTemplate>" +
+                "</Setter.Value></Setter></Style>";
+            return (Style)XamlReader.Parse(xaml);
+        }
+
+        public static Slider MakeSlider(double minimum, double maximum, double value, double width)
+        {
+            return new Slider
+            {
+                Minimum = minimum,
+                Maximum = maximum,
+                Value = value,
+                Width = width,
+                Height = 26,
+                IsMoveToPointEnabled = true,
+                Focusable = false,
+                FocusVisualStyle = null,
+                SnapsToDevicePixels = true,
+                Template = SliderTemplate()
+            };
+        }
+
+        private static ControlTemplate SliderTemplate()
+        {
+            string xaml =
+                "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' " +
+                "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='{x:Type Slider}'>" +
+                "<Grid Height='26' VerticalAlignment='Center'>" +
+                "<Border Height='3' Background='" + Hex(Line) + "' CornerRadius='2' VerticalAlignment='Center'/>" +
+                "<Track x:Name='PART_Track' Minimum='{TemplateBinding Minimum}' Maximum='{TemplateBinding Maximum}' " +
+                "Value='{TemplateBinding Value}' VerticalAlignment='Center'>" +
+                "<Track.DecreaseRepeatButton><RepeatButton Command='{x:Static Slider.DecreaseLarge}' Focusable='False'>" +
+                "<RepeatButton.Template><ControlTemplate TargetType='{x:Type RepeatButton}'>" +
+                "<Border Height='3' Background='" + Hex(Accent) + "' CornerRadius='2'/>" +
+                "</ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>" +
+                "<Track.Thumb><Thumb Width='14' Height='14'>" +
+                "<Thumb.Template><ControlTemplate TargetType='{x:Type Thumb}'>" +
+                "<Ellipse Fill='" + Hex(Surface) + "' Stroke='" + Hex(Accent) + "' StrokeThickness='2'/>" +
+                "</ControlTemplate></Thumb.Template></Thumb></Track.Thumb>" +
+                "<Track.IncreaseRepeatButton><RepeatButton Command='{x:Static Slider.IncreaseLarge}' Focusable='False'>" +
+                "<RepeatButton.Template><ControlTemplate TargetType='{x:Type RepeatButton}'>" +
+                "<Border Height='3' Background='Transparent'/>" +
+                "</ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>" +
+                "</Track></Grid></ControlTemplate>";
+            return (ControlTemplate)XamlReader.Parse(xaml);
+        }
+
+        public static void ApplyContextMenuStyle(ContextMenu menu)
+        {
+            if (menu == null) return;
+            ResourceDictionary resources = ContextMenuResources();
+            menu.Style = (Style)resources[typeof(ContextMenu)];
+            menu.Resources.MergedDictionaries.Add(resources);
+            menu.HasDropShadow = false;
+            menu.SnapsToDevicePixels = true;
+        }
+
+        private static ResourceDictionary ContextMenuResources()
+        {
+            string xaml =
+                "<ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' " +
+                "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>" +
+                "<Style TargetType='{x:Type ContextMenu}'>" +
+                "<Setter Property='OverridesDefaultStyle' Value='True'/>" +
+                "<Setter Property='MinWidth' Value='196'/>" +
+                "<Setter Property='Background' Value='" + Hex(Surface) + "'/>" +
+                "<Setter Property='BorderBrush' Value='" + Hex(LineStrong) + "'/>" +
+                "<Setter Property='BorderThickness' Value='1'/>" +
+                "<Setter Property='Padding' Value='4'/>" +
+                "<Setter Property='Template'><Setter.Value>" +
+                "<ControlTemplate TargetType='{x:Type ContextMenu}'>" +
+                "<Border Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' " +
+                "BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='4' Padding='{TemplateBinding Padding}'>" +
+                "<StackPanel IsItemsHost='True'/></Border></ControlTemplate>" +
+                "</Setter.Value></Setter></Style>" +
+                "<Style TargetType='{x:Type MenuItem}'>" +
+                "<Setter Property='OverridesDefaultStyle' Value='True'/>" +
+                "<Setter Property='Foreground' Value='" + Hex(Ink) + "'/>" +
+                "<Setter Property='FontFamily' Value='Microsoft YaHei UI'/>" +
+                "<Setter Property='FontSize' Value='11.2'/>" +
+                "<Setter Property='Padding' Value='10,6'/>" +
+                "<Setter Property='Template'><Setter.Value>" +
+                "<ControlTemplate TargetType='{x:Type MenuItem}'>" +
+                "<Grid><Border x:Name='Bd' Background='Transparent' CornerRadius='3' Padding='{TemplateBinding Padding}'>" +
+                "<Grid><Grid.ColumnDefinitions><ColumnDefinition Width='*'/><ColumnDefinition Width='16'/></Grid.ColumnDefinitions>" +
+                "<ContentPresenter ContentSource='Header' RecognizesAccessKey='True' VerticalAlignment='Center'/>" +
+                "<Path x:Name='Arrow' Grid.Column='1' Data='M 0 0 L 4 4 L 0 8' Stroke='" + Hex(TextMuted) +
+                "' StrokeThickness='1.2' HorizontalAlignment='Right' VerticalAlignment='Center' Visibility='Collapsed'/>" +
+                "</Grid></Border>" +
+                "<Popup x:Name='PART_Popup' Placement='Right' HorizontalOffset='2' " +
+                "IsOpen='{TemplateBinding IsSubmenuOpen}' AllowsTransparency='True' Focusable='False' PopupAnimation='Fade'>" +
+                "<Border Background='" + Hex(Surface) + "' BorderBrush='" + Hex(LineStrong) +
+                "' BorderThickness='1' CornerRadius='4' Padding='4' MinWidth='164'>" +
+                "<ItemsPresenter/></Border></Popup>" +
+                "</Grid>" +
+                "<ControlTemplate.Triggers>" +
+                "<Trigger Property='IsHighlighted' Value='True'><Setter TargetName='Bd' Property='Background' Value='" +
+                Hex(SurfaceHover) + "'/></Trigger>" +
+                "<Trigger Property='IsSubmenuOpen' Value='True'><Setter TargetName='Bd' Property='Background' Value='" +
+                Hex(AccentSoft) + "'/><Setter TargetName='Arrow' Property='Visibility' Value='Visible'/></Trigger>" +
+                "<Trigger Property='Role' Value='SubmenuHeader'><Setter TargetName='Arrow' Property='Visibility' Value='Visible'/></Trigger>" +
+                "<Trigger Property='IsEnabled' Value='False'><Setter Property='Opacity' Value='0.45'/></Trigger>" +
+                "</ControlTemplate.Triggers></ControlTemplate>" +
+                "</Setter.Value></Setter></Style>" +
+                "<Style TargetType='{x:Type Separator}'>" +
+                "<Setter Property='OverridesDefaultStyle' Value='True'/>" +
+                "<Setter Property='Template'><Setter.Value><ControlTemplate TargetType='{x:Type Separator}'>" +
+                "<Border Height='1' Background='" + Hex(Line) + "' Margin='8,4'/>" +
+                "</ControlTemplate></Setter.Value></Setter></Style>" +
+                "</ResourceDictionary>";
+            return (ResourceDictionary)XamlReader.Parse(xaml);
         }
 
         private static ControlTemplate TextBoxTemplate()

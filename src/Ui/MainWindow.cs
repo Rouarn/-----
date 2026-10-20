@@ -28,6 +28,8 @@ namespace OnmyojiTools.Ui
         private readonly AppController _controller;
         private readonly AppLogger _logger;
         private readonly bool _isAdmin = IsAdministrator();
+        private readonly bool _enableTray;
+        private ITrayService _tray;
 
         private TextBox txtRoot;
         private TextBox txtOpenNum;
@@ -39,16 +41,63 @@ namespace OnmyojiTools.Ui
         private TextBlock lblAdmin;
         private Ellipse _statusDot;
         private Ellipse _soundDot;
-        private Button btnOpen, btnArrange, btnRefresh, btnCloseAll, btnBrowse, btnPin;
-        private Button _refreshIcon;
+        private Button btnOpen, btnArrange, btnRefresh, btnCloseAll, btnBrowse, btnPin, btnSession;
         private StackPanel _instancePanel;
         private ScrollViewer _instanceScroll;
         private Border _emptyState;
         private Border _openStepper;
         private Border _colWrap;
+        private Border _hiddenBanner;
+        private TextBlock _hiddenText;
+        private TextBlock _emptyTitle;
+        private TextBlock _emptyDesc;
+        private Button _btnHideAll;
+        private Button _btnResources;
+        private Button _btnPreview;
         private SwitchControl swSound;
         private Grid _aboutOverlay;
         private Grid _confirmOverlay;
+        private Grid _settingsOverlay;
+        private Grid _resourcesOverlay;
+        private StackPanel _resourcesPanel;
+        private TextBlock _resourcesSummary;
+        private Grid _labelOverlay;
+        private TextBox _labelTextBox;
+        private TextBlock _labelWindowTitle;
+        private TaskCompletionSource<string> _labelResult;
+        private Grid _previewOverlay;
+        private WrapPanel _previewPanel;
+        private TextBlock _previewSummary;
+        private readonly List<IntPtr> _previewThumbnails = new List<IntPtr>();
+        private readonly List<PreviewThumbnailTarget> _previewTargets = new List<PreviewThumbnailTarget>();
+        private TextBox _presetNameBox;
+        private StackPanel _presetListPanel;
+        private TextBlock _presetHint;
+        private ComboBox _monitorCombo;
+        private Slider _backgroundSlider;
+        private TextBlock _backgroundValue;
+        private SwitchControl _startupSwitch;
+        private SwitchControl _autoArrangeSwitch;
+        private SwitchControl _autoRestartSwitch;
+        private SwitchControl _compactSwitch;
+        private SwitchControl _dimSwitch;
+        private SwitchControl _darkSwitch;
+        private ComboBox _hotkeySchemeCombo;
+        private TextBlock _shortcutBossLabel;
+        private TextBlock _shortcutFocusLabel;
+        private TextBlock _shortcutCycleLabel;
+        private bool _suppressMonitorEvents;
+        private bool _suppressVolumeEvents;
+        private bool _suppressStartupEvents;
+        private bool _suppressHotkeyEvents;
+        private bool _suppressAutoArrangeEvents;
+        private bool _suppressAutoRestartEvents;
+        private bool _suppressCompactEvents;
+        private bool _suppressDimEvents;
+        private bool _suppressDarkEvents;
+        private bool _applyingTheme;
+        private InstanceRow _dragSource;
+        private Point _dragStart;
         private TextBlock _confirmTitle;
         private TextBlock _confirmMessage;
         private Button _confirmOkButton;
@@ -56,21 +105,32 @@ namespace OnmyojiTools.Ui
         private Border _shell;
         private Border _busyPanel;
         private TextBlock _busyText;
+        private Grid _bodyGrid;
+        private ColumnDefinition _leftColumn;
+        private bool _compactMode;
 
         private Border[] _colSegments = new Border[4];
         private TextBlock[] _colLabels = new TextBlock[4];
+        private readonly List<InstanceRow> _rows = new List<InstanceRow>();
         private int _arrangeCols;
         private bool _closing;
         private bool _suppressSoundEvents;
 
         internal MainWindow(AppController controller, AppLogger logger)
+            : this(controller, logger, true)
+        {
+        }
+
+        internal MainWindow(AppController controller, AppLogger logger, bool enableTray)
         {
             _controller = controller;
             _logger = logger;
+            _enableTray = enableTray;
             _arrangeCols = controller.Settings.Columns;
+            _compactMode = controller.Settings.CompactMode;
 
             Title = "阴阳师工具 · 桌面控制台";
-            Width = 1120;
+            Width = _compactMode ? 1040 : 1120;
             Height = 760;
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
@@ -83,8 +143,10 @@ namespace OnmyojiTools.Ui
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
 
             Resources.MergedDictionaries.Add(Theme.CommonResources());
+            Theme.SetDark(controller.Settings.DarkTheme);
 
             BuildUi();
+            ApplyCompactMode(false);
 
             _logger.Attach(AppendLog);
             txtRoot.Text = controller.Settings.GameRoot;
@@ -98,6 +160,13 @@ namespace OnmyojiTools.Ui
             if (!_isAdmin) _logger.Log("提示：当前为普通权限，窗口与音量操作可能失败，建议以管理员身份运行。");
 
             _controller.StateChanged += Controller_StateChanged;
+            _controller.ForegroundChanged += Controller_ForegroundChanged;
+            _controller.BossKeyPressed += Controller_BossKeyPressed;
+            _controller.FocusInstanceRequested += Controller_FocusInstanceRequested;
+            _controller.CycleInstanceRequested += Controller_CycleInstanceRequested;
+            _controller.WindowsVisibilityChanged += Controller_WindowsVisibilityChanged;
+            _controller.HealthUpdated += Controller_HealthUpdated;
+            _controller.WindowsChanged += Controller_WindowsChanged;
 
             Loaded += Window_Loaded;
             Closing += Window_Closing;
@@ -118,8 +187,270 @@ namespace OnmyojiTools.Ui
             }
 
             _controller.Start();
-            UpdateRunningLabel();
             RunRefresh();
+            StartTray();
+        }
+
+        private void ApplyCompactMode(bool rebuild)
+        {
+            _compactMode = _controller.Settings.CompactMode;
+            Width = _compactMode ? 1040 : 1120;
+            if (_bodyGrid != null)
+                _bodyGrid.Margin = _compactMode ? new Thickness(16, 14, 16, 12) : new Thickness(22, 18, 22, 14);
+            if (_leftColumn != null)
+                _leftColumn.Width = new GridLength(_compactMode ? 330 : 356);
+            if (rebuild) RunRefresh();
+        }
+
+        private void ApplyTheme(bool dark)
+        {
+            if (_applyingTheme) return;
+            _applyingTheme = true;
+            try
+            {
+                string logText = txtLog == null ? "" : txtLog.Text;
+                ClosePreview();
+                Theme.SetDark(dark);
+                _rows.Clear();
+                BuildUi();
+                if (_shell != null) _shell.Opacity = 1;
+                _logger.Attach(AppendLog);
+
+                if (txtRoot != null) txtRoot.Text = _controller.Settings.GameRoot;
+                if (txtOpenNum != null) txtOpenNum.Text = _controller.Settings.TargetInstances.ToString();
+                SetArrangeCols(_controller.Settings.Columns, false);
+                UpdateSoundState(_controller.SoundFocusEnabled, false);
+                UpdateBusyState();
+                ApplyCompactMode(false);
+                if (txtLog != null)
+                {
+                    txtLog.Text = logText;
+                    txtLog.ScrollToEnd();
+                }
+                RunRefresh();
+            }
+            finally
+            {
+                _applyingTheme = false;
+            }
+        }
+
+        private void StartTray()
+        {
+            if (!_enableTray || _tray != null) return;
+            try
+            {
+                _tray = new TrayService();
+                _tray.ShowRequested += ShowFromTray;
+                _tray.ToggleBossRequested += delegate { _controller.ToggleBossKey(); };
+                _tray.RefreshRequested += delegate { BtnRefresh_Click(); };
+                _tray.ExitRequested += delegate { Close(); };
+                _tray.Start();
+            }
+            catch (Exception ex)
+            {
+                _tray = null;
+                _logger.Log("托盘初始化失败：" + ex.Message);
+            }
+        }
+
+        private void ShowFromTray()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action(ShowFromTray)); }
+                catch { }
+                return;
+            }
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+            Topmost = true;
+            Topmost = false;
+        }
+
+        private void Controller_ForegroundChanged(int processId)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action<int>(Controller_ForegroundChanged), processId); }
+                catch { }
+                return;
+            }
+            if (_closing) return;
+            UpdateFocusStatus(processId);
+            ApplyWindowOpacity(processId);
+        }
+
+        private void ApplyWindowOpacity(int focusedProcessId)
+        {
+            bool enabled = _controller.Settings.DimUnfocusedWindows;
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                InstanceRow row = _rows[i];
+                if (row.Handle == IntPtr.Zero) continue;
+                byte alpha = enabled && row.ProcessId != focusedProcessId ? (byte)205 : (byte)255;
+                WindowOpacityService.SetOpacity(row.Handle, alpha);
+            }
+        }
+
+        private void Controller_BossKeyPressed()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action(Controller_BossKeyPressed)); }
+                catch { }
+                return;
+            }
+            if (_closing) return;
+            _controller.ToggleBossKey();
+        }
+
+        private void Controller_FocusInstanceRequested(int index)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action<int>(Controller_FocusInstanceRequested), index); }
+                catch { }
+                return;
+            }
+            if (_closing) return;
+
+            if (index < 1 || index > _rows.Count)
+            {
+                _logger.Log("快捷键聚焦失败：没有第 " + index + " 个实例。");
+                return;
+            }
+            FocusRow(_rows[index - 1]);
+        }
+
+        private void Controller_CycleInstanceRequested(int direction)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action<int>(Controller_CycleInstanceRequested), direction); }
+                catch { }
+                return;
+            }
+            if (_closing) return;
+            CycleFocus(direction);
+        }
+
+        private void Controller_WindowsVisibilityChanged()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action(Controller_WindowsVisibilityChanged)); }
+                catch { }
+                return;
+            }
+            if (_closing) return;
+            RunRefresh();
+        }
+
+        private void Controller_WindowsChanged()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action(Controller_WindowsChanged)); }
+                catch { }
+                return;
+            }
+            if (_closing) return;
+            RunRefresh();
+        }
+
+        private void FocusRow(InstanceRow row)
+        {
+            if (row == null) return;
+            if (_controller.FocusWindow(row.Handle))
+            {
+                UpdateFocusStatus(row.ProcessId);
+                _logger.Log("已聚焦实例 PID " + row.ProcessId + "。");
+            }
+        }
+
+        private void CycleFocus(int direction)
+        {
+            if (_rows.Count == 0)
+            {
+                _logger.Log("快捷键切换失败：当前没有可见的游戏窗口。");
+                return;
+            }
+
+            int current = -1;
+            int focusedPid = _controller.ForegroundProcessId;
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                if (_rows[i].ProcessId != focusedPid) continue;
+                current = i;
+                break;
+            }
+
+            int next;
+            if (current < 0)
+                next = direction >= 0 ? 0 : _rows.Count - 1;
+            else
+                next = (current + direction + _rows.Count) % _rows.Count;
+
+            FocusRow(_rows[next]);
+        }
+
+        private bool IsOverlayVisible()
+        {
+            return (_confirmOverlay != null && _confirmOverlay.Visibility == Visibility.Visible)
+                || (_aboutOverlay != null && _aboutOverlay.Visibility == Visibility.Visible)
+                || (_settingsOverlay != null && _settingsOverlay.Visibility == Visibility.Visible)
+                || (_resourcesOverlay != null && _resourcesOverlay.Visibility == Visibility.Visible)
+                || (_labelOverlay != null && _labelOverlay.Visibility == Visibility.Visible)
+                || (_previewOverlay != null && _previewOverlay.Visibility == Visibility.Visible);
+        }
+
+        /// <summary>只更新状态点/文字，不重建列表。</summary>
+        private void UpdateFocusStatus(int focusedProcessId)
+        {
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                InstanceRow row = _rows[i];
+                bool focused = focusedProcessId > 0 && row.ProcessId == focusedProcessId;
+                if (!row.Responsive)
+                {
+                    if (row.IsFocused == focused && row.Label.Text == "无响应") continue;
+                    row.IsFocused = focused;
+                    row.Dot.Fill = Theme.B(Theme.Amber);
+                    row.Label.Text = "无响应";
+                    row.Label.Foreground = Theme.B(Theme.Amber);
+                    continue;
+                }
+                if (row.IsFocused == focused && row.Label.Text != "无响应") continue;
+
+                row.IsFocused = focused;
+                row.Dot.Fill = Theme.B(focused ? Theme.Accent : Theme.Green);
+                row.Label.Text = focused ? "聚焦" : "运行中";
+                row.Label.Foreground = Theme.B(focused ? Theme.Accent : Theme.TextSub);
+            }
+        }
+
+        private void Controller_HealthUpdated(IReadOnlyList<InstanceHealth> health)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action<IReadOnlyList<InstanceHealth>>(Controller_HealthUpdated), health); }
+                catch { }
+                return;
+            }
+            if (_closing || health == null) return;
+
+            Dictionary<int, bool> map = new Dictionary<int, bool>();
+            for (int i = 0; i < health.Count; i++)
+                map[health[i].ProcessId] = health[i].Responsive;
+
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                bool responsive;
+                _rows[i].Responsive = !map.TryGetValue(_rows[i].ProcessId, out responsive) || responsive;
+            }
+            UpdateFocusStatus(_controller.ForegroundProcessId);
         }
 
         private void Window_Closing(object sender, CancelEventArgs e)
@@ -129,6 +460,15 @@ namespace OnmyojiTools.Ui
 
             FinishConfirm(false);
             CloseAbout();
+            CloseSettings();
+            CloseResources();
+            ClosePreview();
+            CancelLabel();
+
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                if (_rows[i].Handle != IntPtr.Zero) WindowOpacityService.Restore(_rows[i].Handle);
+            }
 
             int target;
             if (txtOpenNum != null &&
@@ -138,10 +478,24 @@ namespace OnmyojiTools.Ui
             }
 
             _controller.StateChanged -= Controller_StateChanged;
+            _controller.ForegroundChanged -= Controller_ForegroundChanged;
+            _controller.BossKeyPressed -= Controller_BossKeyPressed;
+            _controller.FocusInstanceRequested -= Controller_FocusInstanceRequested;
+            _controller.CycleInstanceRequested -= Controller_CycleInstanceRequested;
+            _controller.WindowsVisibilityChanged -= Controller_WindowsVisibilityChanged;
+            _controller.HealthUpdated -= Controller_HealthUpdated;
+            _controller.WindowsChanged -= Controller_WindowsChanged;
             _controller.CancelCurrentOperation();
 
             try { _controller.Dispose(); }
             catch (Exception ex) { _logger.LogError("关闭时清理资源失败", ex); }
+
+            if (_tray != null)
+            {
+                try { _tray.Dispose(); }
+                catch { }
+                _tray = null;
+            }
 
             _logger.Detach();
         }
@@ -150,7 +504,27 @@ namespace OnmyojiTools.Ui
         {
             if (e.Key == Key.Escape)
             {
-                if (_confirmOverlay != null && _confirmOverlay.Visibility == Visibility.Visible)
+                if (_labelOverlay != null && _labelOverlay.Visibility == Visibility.Visible)
+                {
+                    FinishLabel(null);
+                    e.Handled = true;
+                }
+                else if (_previewOverlay != null && _previewOverlay.Visibility == Visibility.Visible)
+                {
+                    ClosePreview();
+                    e.Handled = true;
+                }
+                else if (_resourcesOverlay != null && _resourcesOverlay.Visibility == Visibility.Visible)
+                {
+                    CloseResources();
+                    e.Handled = true;
+                }
+                else if (_settingsOverlay != null && _settingsOverlay.Visibility == Visibility.Visible)
+                {
+                    CloseSettings();
+                    e.Handled = true;
+                }
+                else if (_confirmOverlay != null && _confirmOverlay.Visibility == Visibility.Visible)
                 {
                     FinishConfirm(false);
                     e.Handled = true;
@@ -169,6 +543,23 @@ namespace OnmyojiTools.Ui
             else if (e.Key == Key.F5 && !_controller.IsBusy)
             {
                 BtnRefresh_Click();
+                e.Handled = true;
+            }
+            else if (!IsOverlayVisible() && Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.Tab)
+            {
+                CycleFocus(1);
+                e.Handled = true;
+            }
+            else if (!IsOverlayVisible() && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.Tab)
+            {
+                CycleFocus(-1);
+                e.Handled = true;
+            }
+            else if (!IsOverlayVisible() && Keyboard.Modifiers == ModifierKeys.Control &&
+                e.Key >= Key.D1 && e.Key <= Key.D9)
+            {
+                int index = (int)e.Key - (int)Key.D1 + 1;
+                if (index <= _rows.Count) FocusRow(_rows[index - 1]);
                 e.Handled = true;
             }
         }
@@ -197,7 +588,9 @@ namespace OnmyojiTools.Ui
             root.Children.Add(header);
 
             Grid body = new Grid { Margin = new Thickness(22, 18, 22, 14) };
-            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(356) });
+            _bodyGrid = body;
+            _leftColumn = new ColumnDefinition { Width = new GridLength(356) };
+            body.ColumnDefinitions.Add(_leftColumn);
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
@@ -239,6 +632,22 @@ namespace OnmyojiTools.Ui
             _confirmOverlay = BuildConfirmOverlay();
             Grid.SetRowSpan(_confirmOverlay, 3);
             root.Children.Add(_confirmOverlay);
+
+            _settingsOverlay = BuildSettingsOverlay();
+            Grid.SetRowSpan(_settingsOverlay, 3);
+            root.Children.Add(_settingsOverlay);
+
+            _resourcesOverlay = BuildResourcesOverlay();
+            Grid.SetRowSpan(_resourcesOverlay, 3);
+            root.Children.Add(_resourcesOverlay);
+
+            _labelOverlay = BuildLabelOverlay();
+            Grid.SetRowSpan(_labelOverlay, 3);
+            root.Children.Add(_labelOverlay);
+
+            _previewOverlay = BuildPreviewOverlay();
+            Grid.SetRowSpan(_previewOverlay, 3);
+            root.Children.Add(_previewOverlay);
 
             _shell.Child = root;
             Content = _shell;
@@ -372,7 +781,7 @@ namespace OnmyojiTools.Ui
                 Padding = new Thickness(10, 4, 11, 4),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = status,
-                ToolTip = "当前正在运行的阴阳师进程数"
+                ToolTip = "已识别的游戏窗口数，与下方「运行实例」列表一致"
             };
             Grid.SetColumn(statusBox, 2);
             g.Children.Add(statusBox);
@@ -466,6 +875,10 @@ namespace OnmyojiTools.Ui
             };
             right.Children.Add(sep2);
 
+            Button btnSettings = Theme.MakeButton("设置", OpenSettings, ButtonKind.Link, 22);
+            btnSettings.Padding = new Thickness(0);
+            btnSettings.Margin = new Thickness(0, 0, 10, 0);
+            right.Children.Add(btnSettings);
             Button btnDoc = Theme.MakeButton("使用说明", OpenUsageDoc, ButtonKind.Link, 22);
             btnDoc.Padding = new Thickness(0);
             btnDoc.Margin = new Thickness(0, 0, 4, 0);
@@ -502,11 +915,14 @@ namespace OnmyojiTools.Ui
             }
 
             if (btnOpen != null) btnOpen.IsEnabled = !busy;
+            if (btnSession != null) btnSession.IsEnabled = !busy;
             if (btnArrange != null) btnArrange.IsEnabled = !busy;
             if (btnCloseAll != null) btnCloseAll.IsEnabled = !busy;
             if (btnRefresh != null) btnRefresh.IsEnabled = !busy;
             if (btnBrowse != null) btnBrowse.IsEnabled = !busy;
-            if (_refreshIcon != null) _refreshIcon.IsEnabled = !busy;
+            if (_btnHideAll != null) _btnHideAll.IsEnabled = !busy;
+            if (_btnResources != null) _btnResources.IsEnabled = !busy;
+            if (_btnPreview != null) _btnPreview.IsEnabled = !busy;
             if (_openStepper != null) _openStepper.IsEnabled = !busy;
             if (_colWrap != null) _colWrap.IsEnabled = !busy;
         }
@@ -516,6 +932,7 @@ namespace OnmyojiTools.Ui
             if (operation == "launch") return "正在多开…";
             if (operation == "arrange") return "正在排列窗口…";
             if (operation == "close") return "正在关闭窗口…";
+            if (operation == "session") return "正在启动会话…";
             return "正在处理…";
         }
 
@@ -524,13 +941,6 @@ namespace OnmyojiTools.Ui
             if (!_controller.IsBusy) return;
             _controller.CancelCurrentOperation();
             _logger.Log("正在取消当前操作…");
-        }
-
-        private void UpdateRunningLabel()
-        {
-            int count = _controller.GetRunningCount();
-            if (lblRunning != null) lblRunning.Text = count.ToString();
-            if (_statusDot != null) _statusDot.Fill = Theme.B(count > 0 ? Theme.Green : Theme.TextMuted);
         }
 
         private void UpdateSoundState(bool enabled, bool updateSwitch)
@@ -590,12 +1000,38 @@ namespace OnmyojiTools.Ui
             {
                 _controller.UpdateTargetInstances(target);
                 await _controller.LaunchAsync(target);
-                UpdateRunningLabel();
                 await RefreshListAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogError("多开操作失败", ex);
+            }
+        }
+
+        private async void BtnSession_Click()
+        {
+            if (_controller.IsBusy) return;
+            int target;
+            if (!InputValidation.TryParseInt(txtOpenNum.Text, AppSettings.MinInstances, AppSettings.MaxInstances, out target))
+            {
+                _logger.Log(string.Format("输入无效：请输入 {0}-{1} 之间的整数。", AppSettings.MinInstances, AppSettings.MaxInstances));
+                txtOpenNum.Focus();
+                txtOpenNum.SelectAll();
+                return;
+            }
+
+            try
+            {
+                SessionResult result = await _controller.StartSessionAsync(target, _arrangeCols);
+                if (result == null) _logger.Log("一键会话没有返回结果。");
+                else if (!string.IsNullOrEmpty(result.Error)) _logger.Log("一键会话失败：" + result.Error);
+                else if (result.Canceled) _logger.Log("一键会话已取消。");
+                else _logger.Log("一键会话完成。");
+                await RefreshListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("一键会话失败", ex);
             }
         }
 
@@ -605,7 +1041,6 @@ namespace OnmyojiTools.Ui
             try
             {
                 await _controller.ArrangeAsync(_arrangeCols);
-                UpdateRunningLabel();
                 await RefreshListAsync();
             }
             catch (Exception ex)
@@ -627,7 +1062,6 @@ namespace OnmyojiTools.Ui
             try
             {
                 await _controller.CloseAllAsync();
-                UpdateRunningLabel();
                 await RefreshListAsync();
             }
             catch (Exception ex)
@@ -639,8 +1073,69 @@ namespace OnmyojiTools.Ui
         private async void BtnRefresh_Click()
         {
             if (_controller.IsBusy) return;
-            UpdateRunningLabel();
             await RefreshListAsync();
+        }
+
+        private async void BtnHideAll_Click()
+        {
+            if (_controller.IsBusy) return;
+            if (_controller.HiddenWindowCount > 0)
+                _controller.ShowHiddenWindows();
+            else
+                _controller.HideAllWindows();
+            await RefreshListAsync();
+        }
+
+        private async void ShowHiddenWindows()
+        {
+            if (_controller.IsBusy) return;
+            _controller.ShowHiddenWindows();
+            await RefreshListAsync();
+        }
+
+        private async void CloseInstanceFromMenu(InstanceRow info)
+        {
+            if (info == null || _controller.IsBusy) return;
+            bool confirmed = await ConfirmAsync(
+                "关闭单个实例",
+                "将关闭 PID " + info.ProcessId + "（" + info.Title + "）。其他实例不受影响，是否继续？",
+                "确认关闭");
+            if (!confirmed) return;
+
+            try
+            {
+                CloseResult result = await _controller.CloseInstanceAsync(info.ProcessId);
+                if (result != null && !string.IsNullOrEmpty(result.Error))
+                    _logger.Log("关闭实例失败：" + result.Error);
+                await RefreshListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("关闭实例失败", ex);
+            }
+        }
+
+        private async void RestartInstanceFromMenu(InstanceRow info)
+        {
+            if (info == null || _controller.IsBusy) return;
+            bool confirmed = await ConfirmAsync(
+                "重启单个实例",
+                "将关闭 PID " + info.ProcessId + "，然后补启动一个实例。重启后需要手动登录，是否继续？",
+                "确认重启");
+            if (!confirmed) return;
+
+            try
+            {
+                _logger.Log("正在重启 PID " + info.ProcessId + "…");
+                LaunchResult result = await _controller.RestartInstanceAsync(info.ProcessId);
+                if (result != null && !string.IsNullOrEmpty(result.Error))
+                    _logger.Log("重启实例失败：" + result.Error);
+                await RefreshListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("重启实例失败", ex);
+            }
         }
 
         private void BtnBrowse_Click()
@@ -684,7 +1179,9 @@ namespace OnmyojiTools.Ui
                 bool on = (i + 1) == _arrangeCols;
                 if (_colSegments[i] == null) continue;
                 _colSegments[i].Tag = on;
-                _colSegments[i].Background = on ? Theme.B(Theme.Ink) : Brushes.Transparent;
+                _colSegments[i].Background = on
+                    ? Theme.B(Theme.IsDark ? Theme.Accent : Theme.Ink)
+                    : Brushes.Transparent;
                 _colLabels[i].Foreground = Theme.B(on ? Colors.White : Theme.TextSub);
                 _colLabels[i].FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
             }
@@ -748,15 +1245,43 @@ namespace OnmyojiTools.Ui
                 if (_closing) return;
 
                 _instancePanel.Children.Clear();
+                _rows.Clear();
                 for (int i = 0; i < windows.Count; i++)
-                    _instancePanel.Children.Add(BuildInstanceRow(i + 1, windows[i]));
+                    _instancePanel.Children.Add(BuildInstanceRow(i + 1, windows[i],
+                        _controller.GetInstanceLabel(windows[i].Title)));
+                UpdateFocusStatus(_controller.ForegroundProcessId);
+                ApplyWindowOpacity(_controller.ForegroundProcessId);
 
                 bool empty = windows.Count == 0;
                 _emptyState.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
                 _instanceScroll.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+
+                int hidden = _controller.HiddenWindowCount;
+                if (_hiddenBanner != null)
+                    _hiddenBanner.Visibility = hidden > 0 ? Visibility.Visible : Visibility.Collapsed;
+                if (_hiddenText != null)
+                    _hiddenText.Text = "已隐藏 " + hidden + " 个游戏窗口";
+                if (_btnHideAll != null)
+                {
+                    _btnHideAll.Content = hidden > 0 ? "显示隐藏 (" + hidden + ")" : "隐藏全部";
+                    _btnHideAll.IsEnabled = !_controller.IsBusy && (hidden > 0 || windows.Count > 0);
+                }
+                if (empty && _emptyTitle != null && _emptyDesc != null)
+                {
+                    _emptyTitle.Text = hidden > 0 ? "窗口已隐藏" : "尚未发现游戏窗口";
+                    _emptyDesc.Text = hidden > 0
+                        ? "按 Ctrl+Alt+H 或点「显示隐藏」恢复"
+                        : "启动游戏后点「运行实例」右上角刷新，或按 F5";
+                }
+
+                // 顶部计数与 04 列表使用同一次窗口快照，避免一边按进程、一边按窗口导致数字不一致。
+                lblRunning.Text = windows.Count.ToString();
+                _statusDot.Fill = Theme.B(windows.Count > 0 ? Theme.Green : Theme.TextMuted);
                 lblWinCount.Text = windows.Count + " 个窗口";
-                lblScan.Text = "共 " + windows.Count + " 个 · 最后刷新 " + DateTime.Now.ToString("HH:mm:ss");
-                _logger.Log("识别到阴阳师窗口 " + windows.Count + " 个。");
+                lblScan.Text = hidden > 0
+                    ? "可见 " + windows.Count + " 个 · 已隐藏 " + hidden + " 个 · " + DateTime.Now.ToString("HH:mm:ss")
+                    : "共 " + windows.Count + " 个 · 最后刷新 " + DateTime.Now.ToString("HH:mm:ss");
+                _logger.Log("识别到阴阳师窗口 " + windows.Count + " 个。" + (hidden > 0 ? "（已隐藏 " + hidden + " 个）" : ""));
             }
             catch (Exception ex)
             {
@@ -792,6 +1317,7 @@ namespace OnmyojiTools.Ui
         internal void ShowAbout()
         {
             if (_aboutOverlay == null) return;
+            ClosePreview();
             _aboutOverlay.Visibility = Visibility.Visible;
             _aboutOverlay.BeginAnimation(UIElement.OpacityProperty,
                 new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
@@ -826,6 +1352,24 @@ namespace OnmyojiTools.Ui
                 }
             }
             catch { return false; }
+        }
+
+        private sealed class InstanceRow
+        {
+            public int ProcessId;
+            public IntPtr Handle;
+            public string Title;
+            public string CustomLabel;
+            public Ellipse Dot;
+            public TextBlock Label;
+            public bool IsFocused;
+            public bool Responsive = true;
+        }
+
+        private sealed class PreviewThumbnailTarget
+        {
+            public IntPtr Source;
+            public FrameworkElement Frame;
         }
     }
 }
