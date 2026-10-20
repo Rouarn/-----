@@ -579,7 +579,7 @@ namespace OnmyojiTools.Ui
             clear.Width = 58;
             clear.FontSize = 10.5;
             clear.HorizontalAlignment = HorizontalAlignment.Right;
-            clear.ToolTip = "清空当前日志（不影响 audio_log.txt）";
+            clear.ToolTip = "清空当前界面日志";
             Grid.SetColumn(clear, 1);
             head.Children.Add(clear);
             g.Children.Add(head);

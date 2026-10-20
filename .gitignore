@@ -1,0 +1,25 @@
+# ===== 构建产物（由 build.bat 生成，不入库） =====
+bin/
+obj/
+artifacts/
+*.exe
+*.pdb
+*.rsp
+*.cache
+
+# ===== 运行时生成（日志与本机配置） =====
+audio_log.txt
+config.ini
+*.log
+
+# ===== IDE / 用户级配置 =====
+.vs/
+*.user
+*.suo
+*.userprefs
+
+# ===== 临时/系统文件 =====
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -65,14 +65,14 @@
 
     5. 运行日志
        - 记录每次多开、排列、声音开关、关闭与识别的结果，方便排查
-       - 「清空」只清空界面日志；音频层的详细扫描记录仍写入 audio_log.txt
+       - 「清空」只清空界面日志；声音跟随不再生成独立的 audio_log.txt
 
     6. 快捷键
        - F5：刷新实例列表
        - Esc：关闭「关于」弹层
 
 四、文件说明
-    阴阳师工具.exe   主程序（双击运行，需要管理员权限，会自动弹出 UAC 确认）
+    阴阳师工具.exe   主程序（由 build.bat 生成；双击运行，需要管理员权限）
     src\              WPF 源码目录
       src\Ui\MainWindow.cs          窗口框架、顶栏、底栏、事件与业务调用
       src\Ui\MainWindow.Cards.cs    四张功能卡片、实例列表、日志、关于弹层
@@ -83,10 +83,10 @@
       src\Interop\                  Win32 / COM 互操作
       src\Program.cs                入口、命令行自检
     tools\UiShot.cs   开发辅助：离屏截图与交互冒烟测试（不参与正式构建）
-    docs\             界面预览图
     app.manifest      管理员权限清单
     build.bat         一键重新编译（修改源码后双击即可重新生成 exe）
-    config.ini        上次选择的游戏工作目录
+    .gitignore        Git 忽略规则（exe、日志、本机配置等）
+    config.ini        上次选择的游戏工作目录（本地生成，不提交 Git）
     icon.ico          程序图标
     使用说明.txt      本文件
 

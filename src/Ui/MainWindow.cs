@@ -70,7 +70,6 @@ namespace OnmyojiTools.Ui
             txtRoot.Text = _config.YysRoot;
 
             // 声音跟随聚焦：常驻监控
-            AudioApi.LogFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "audio_log.txt");
             _sf = new SoundFocusController();
             timerSound = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             timerSound.Tick += TimerSound_Tick;
