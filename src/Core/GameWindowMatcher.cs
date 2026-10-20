@@ -20,8 +20,7 @@ namespace OnmyojiTools.Core
             try { file = Path.GetFileName(executablePath); }
             catch { return false; }
 
-            return string.Equals(file, "onmyoji.exe", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(file, "yys.exe", StringComparison.OrdinalIgnoreCase);
+            return string.Equals(file, "onmyoji.exe", StringComparison.OrdinalIgnoreCase);
         }
 
         public static bool IsGameTitle(string title)

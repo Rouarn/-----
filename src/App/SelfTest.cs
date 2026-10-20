@@ -134,8 +134,8 @@ namespace OnmyojiTools.App
         {
             check("识别 onmyoji.exe 主窗口",
                 GameWindowMatcher.IsGameWindow("阴阳师", @"C:\Netease\yys\bin\onmyoji.exe", 100, 1));
-            check("识别 yys.exe 主窗口",
-                GameWindowMatcher.IsGameWindow("阴阳师 - 账号 2", @"D:\Games\yys.exe", 101, 1));
+            check("拒绝旧版 yys.exe 进程",
+                !GameWindowMatcher.IsGameWindow("阴阳师 - 账号 2", @"D:\Games\yys.exe", 101, 1));
             check("排除工具自身标题",
                 !GameWindowMatcher.IsGameWindow("阴阳师工具", @"C:\Tools\阴阳师工具.exe", 102, 1));
             check("排除登录/支付窗口",
@@ -144,7 +144,8 @@ namespace OnmyojiTools.App
                 !GameWindowMatcher.IsGameWindow("阴阳师", @"C:\Windows\notepad.exe", 104, 1));
         }
 
-        private static void TestSettingsStore(Action<string, bool> check)        {
+        private static void TestSettingsStore(Action<string, bool> check)
+        {
             string temp = Path.Combine(Path.GetTempPath(), "yys-selftest-" + Guid.NewGuid().ToString("N"));
             string gameRoot = Path.Combine(temp, "game");
             Directory.CreateDirectory(gameRoot);
@@ -169,11 +170,13 @@ namespace OnmyojiTools.App
                 check("配置往返：声音开关", !loaded.SoundFocusEnabled);
 
                 Directory.CreateDirectory(temp);
-                File.WriteAllText(Path.Combine(temp, "legacy.ini"), gameRoot, new UTF8Encoding(false));
-                SettingsStore legacyStore = new SettingsStore(Path.Combine(temp, "legacy.ini"));
+                string legacyPath = Path.Combine(temp, "legacy.ini");
+                File.WriteAllText(legacyPath, gameRoot, new UTF8Encoding(false));
+                SettingsStore legacyStore = new SettingsStore(legacyPath);
                 AppSettings legacy = legacyStore.Load();
-                check("兼容旧版单行目录配置", legacy.GameRoot == gameRoot);
-                check("旧版配置使用默认开数", legacy.TargetInstances == 2);
+                check("旧版单行配置不再读取", legacy.GameRoot == AppSettings.DefaultGameRoot);
+                check("无效配置给出错误提示", !string.IsNullOrEmpty(legacyStore.LastLoadError));
+                check("无效配置回退默认开数", legacy.TargetInstances == 2);
             }
             catch (Exception ex)
             {

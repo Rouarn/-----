@@ -6,8 +6,8 @@ using System.Text;
 namespace OnmyojiTools.App
 {
     /// <summary>
-    /// config.ini 的读写。兼容旧版“文件里只有一行游戏目录”的格式；
-    /// 新格式为 key=value，采用临时文件 + 替换的原子写入。
+    /// config.ini 的读写。只接受当前 key=value 格式；
+    /// 采用临时文件 + 替换的原子写入，不读取旧版单行目录格式。
     /// </summary>
     internal sealed class SettingsStore
     {
@@ -34,25 +34,17 @@ namespace OnmyojiTools.App
                 if (!File.Exists(_path)) return settings;
 
                 string[] lines = File.ReadAllLines(_path, Encoding.UTF8);
+                bool sawContent = false;
                 bool sawKey = false;
-                bool sawLegacyRoot = false;
 
                 for (int i = 0; i < lines.Length; i++)
                 {
                     string line = lines[i].Trim();
                     if (line.Length == 0 || line.StartsWith("#") || line.StartsWith(";")) continue;
 
+                    sawContent = true;
                     int equals = line.IndexOf('=');
-                    if (equals < 0)
-                    {
-                        // 旧格式：整行就是一个目录
-                        if (!sawKey && !sawLegacyRoot && Directory.Exists(line))
-                        {
-                            settings.GameRoot = line;
-                            sawLegacyRoot = true;
-                        }
-                        continue;
-                    }
+                    if (equals < 0) continue;
 
                     sawKey = true;
                     string key = line.Substring(0, equals).Trim();
@@ -75,6 +67,9 @@ namespace OnmyojiTools.App
                             break;
                     }
                 }
+
+                if (sawContent && !sawKey)
+                    LastLoadError = "配置文件缺少 key=value，已使用默认设置。";
             }
             catch (Exception ex)
             {

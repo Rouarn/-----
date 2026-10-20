@@ -6,10 +6,10 @@ using OnmyojiTools.Interop;
 
 namespace OnmyojiTools.Core
 {
-    /// <summary>游戏进程枚举；所有 Process 句柄都会及时释放。</summary>
+    /// <summary>当前版本游戏进程枚举；所有 Process 句柄都会及时释放。</summary>
     internal sealed class GameProcessService : IGameProcessService
     {
-        private static readonly string[] ProcessNames = { "onmyoji", "yys" };
+        private const string ProcessName = "onmyoji";
         private readonly int _selfProcessId;
 
         public GameProcessService()
@@ -20,22 +20,19 @@ namespace OnmyojiTools.Core
         public HashSet<int> GetRunningProcessIds()
         {
             HashSet<int> ids = new HashSet<int>();
-            for (int i = 0; i < ProcessNames.Length; i++)
-            {
-                Process[] processes = null;
-                try { processes = Process.GetProcessesByName(ProcessNames[i]); }
-                catch { continue; }
+            Process[] processes;
+            try { processes = Process.GetProcessesByName(ProcessName); }
+            catch { return ids; }
 
-                for (int j = 0; j < processes.Length; j++)
+            for (int i = 0; i < processes.Length; i++)
+            {
+                Process process = processes[i];
+                try
                 {
-                    Process process = processes[j];
-                    try
-                    {
-                        if (process.Id != _selfProcessId) ids.Add(process.Id);
-                    }
-                    catch { }
-                    finally { process.Dispose(); }
+                    if (process.Id != _selfProcessId) ids.Add(process.Id);
                 }
+                catch { }
+                finally { process.Dispose(); }
             }
             return ids;
         }
@@ -43,39 +40,34 @@ namespace OnmyojiTools.Core
         public IReadOnlyList<GameProcessInfo> GetRunningGames()
         {
             List<GameProcessInfo> games = new List<GameProcessInfo>();
-            HashSet<int> seen = new HashSet<int>();
+            Process[] processes;
+            try { processes = Process.GetProcessesByName(ProcessName); }
+            catch { return games; }
 
-            for (int i = 0; i < ProcessNames.Length; i++)
+            for (int i = 0; i < processes.Length; i++)
             {
-                Process[] processes = null;
-                try { processes = Process.GetProcessesByName(ProcessNames[i]); }
-                catch { continue; }
-
-                for (int j = 0; j < processes.Length; j++)
+                Process process = processes[i];
+                try
                 {
-                    Process process = processes[j];
-                    try
+                    int id = process.Id;
+                    if (id == _selfProcessId) continue;
+
+                    string path = ProcessPathReader.TryGetExecutablePath(id);
+                    if (!string.IsNullOrEmpty(path) && !GameWindowMatcher.IsGameExecutable(path)) continue;
+
+                    DateTime? start = null;
+                    try { start = process.StartTime; } catch { }
+
+                    games.Add(new GameProcessInfo
                     {
-                        int id = process.Id;
-                        if (id == _selfProcessId || !seen.Add(id)) continue;
-
-                        string path = ProcessPathReader.TryGetExecutablePath(id);
-                        if (!string.IsNullOrEmpty(path) && !GameWindowMatcher.IsGameExecutable(path)) continue;
-
-                        DateTime? start = null;
-                        try { start = process.StartTime; } catch { }
-
-                        games.Add(new GameProcessInfo
-                        {
-                            ProcessId = id,
-                            ProcessName = SafeProcessName(process),
-                            ExecutablePath = path,
-                            StartTime = start
-                        });
-                    }
-                    catch { }
-                    finally { process.Dispose(); }
+                        ProcessId = id,
+                        ProcessName = SafeProcessName(process),
+                        ExecutablePath = path,
+                        StartTime = start
+                    });
                 }
+                catch { }
+                finally { process.Dispose(); }
             }
 
             return games.OrderBy(g => g.ProcessId).ToList();
