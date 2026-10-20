@@ -1,5 +1,5 @@
 @echo off
-chcp 936 >nul
+chcp 65001 >nul
 cd /d "%~dp0"
 set "CSC=C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if not exist "%CSC%" (
@@ -7,7 +7,7 @@ if not exist "%CSC%" (
     pause
     exit /b 1
 )
-echo 正在编译（.NET Framework 4.x, WPF 现代化界面, 编译 src 目录全部源码）...
+echo 正在编译（.NET Framework 4.x, WPF 朱印控制台界面, 编译 src 目录全部源码）...
 
 rem 生成响应文件：第一行编译选项，其余为 src 下全部 .cs 文件（递归，带引号防路径空格）
 set "RSP=%TEMP%\onmyoji_build.rsp"
