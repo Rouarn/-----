@@ -22,8 +22,12 @@ namespace OnmyojiTools.App
 
         public string FilePath { get { return _path; } }
 
+        /// <summary>读取失败时的错误信息；成功后为 null。界面层可以据此提示用户。</summary>
+        public string LastLoadError { get; private set; }
+
         public AppSettings Load()
         {
+            LastLoadError = null;
             AppSettings settings = new AppSettings();
             try
             {
@@ -72,9 +76,10 @@ namespace OnmyojiTools.App
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // 配置损坏时回退到默认值，不能阻止程序启动
+                // 配置损坏时回退到默认值，但不能静默：记录错误供控制器写日志
+                LastLoadError = ex.Message;
             }
 
             settings.Normalize();

@@ -27,6 +27,7 @@ namespace OnmyojiTools.Audio
         private Task _loop;
         private bool _disposed;
         private int _lastFocusedProcessId = -1;
+        private int _lastMissingSessions = -1;
 
         public SoundFocusService(IGameProcessService processes, IAudioSessionService audio, AppLogger logger)
         {
@@ -48,6 +49,7 @@ namespace OnmyojiTools.Audio
                 _cancellation = new CancellationTokenSource();
                 CancellationToken token = _cancellation.Token;
                 _lastFocusedProcessId = -1;
+                _lastMissingSessions = -1;
                 _loop = Task.Run(delegate { Loop(token); });
             }
             _logger.Log("声音跟随聚焦监控已开启：聚焦窗口正常音量，失焦窗口自动调小。");
@@ -105,6 +107,7 @@ namespace OnmyojiTools.Audio
             if (games.Count == 0)
             {
                 _lastFocusedProcessId = 0;
+                _lastMissingSessions = -1;
                 return;
             }
 
@@ -123,7 +126,12 @@ namespace OnmyojiTools.Audio
                 desired[processId] = processId == focusedProcessId ? FocusVolume : BackgroundVolume;
 
             token.ThrowIfCancellationRequested();
-            _audio.ApplyVolumes(desired);
+            HashSet<int> applied = _audio.ApplyVolumes(desired);
+
+            int missing = desired.Count - applied.Count;
+            if (missing > 0 && missing != _lastMissingSessions)
+                _logger.Log("有 " + missing + " 个实例暂未找到音频会话，可能游戏音频尚未初始化。");
+            _lastMissingSessions = missing;
         }
 
         private void RestoreVolumes()

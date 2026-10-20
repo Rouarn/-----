@@ -52,6 +52,9 @@ namespace OnmyojiTools.App
             _closer = closer;
             _sound = sound;
             _logger = logger;
+
+            if (!string.IsNullOrEmpty(store.LastLoadError))
+                _logger.Log("读取配置失败，已回退到默认设置：" + store.LastLoadError);
         }
 
         public static AppController CreateDefault(AppSettings settings, SettingsStore store, AppLogger logger)

@@ -129,6 +129,14 @@ namespace OnmyojiTools.Ui
 
             FinishConfirm(false);
             CloseAbout();
+
+            int target;
+            if (txtOpenNum != null &&
+                InputValidation.TryParseInt(txtOpenNum.Text, AppSettings.MinInstances, AppSettings.MaxInstances, out target))
+            {
+                _controller.UpdateTargetInstances(target);
+            }
+
             _controller.StateChanged -= Controller_StateChanged;
             _controller.CancelCurrentOperation();
 
