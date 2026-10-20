@@ -5,15 +5,16 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using OnmyojiTools.App;
 using OnmyojiTools.Core;
 
 namespace OnmyojiTools.Ui
 {
-    /// <summary>主窗口 —— 卡片、列表、日志与关于弹层（partial）</summary>
-    public partial class MainWindow
+    /// <summary>主窗口的卡片、实例列表、日志与弹层（视图构建部分）。</summary>
+    internal sealed partial class MainWindow
     {
         // ==================== 01 多开控制 ====================
-        private Border BuildLaunchCard()
+        private Border BuildLaunchCard(int target)
         {
             StackPanel sp = new StackPanel();
             sp.Children.Add(Theme.CardHeader("01", "多开控制", "按 8 秒间隔补足实例，避免客户端抢占失败", null));
@@ -28,12 +29,12 @@ namespace OnmyojiTools.Ui
             Grid.SetColumn(openLabel, 0);
             rowOpen.Children.Add(openLabel);
 
-            Border stepper = BuildOpenStepper();
-            Grid.SetColumn(stepper, 1);
-            rowOpen.Children.Add(stepper);
+            _openStepper = BuildOpenStepper(target);
+            Grid.SetColumn(_openStepper, 1);
+            rowOpen.Children.Add(_openStepper);
             sp.Children.Add(rowOpen);
 
-            btnOpen = Theme.MakeButton("开始多开", delegate { RunTask(BtnOpen_Click()); }, ButtonKind.Primary, 42);
+            btnOpen = Theme.MakeButton("开始多开", delegate { BtnOpen_Click(); }, ButtonKind.Primary, 42);
             btnOpen.Margin = new Thickness(0, 12, 0, 0);
             sp.Children.Add(btnOpen);
 
@@ -43,7 +44,7 @@ namespace OnmyojiTools.Ui
             rowRoot.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             rowRoot.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            txtRoot = Theme.MakeTextBox(AppConfig.DefaultRoot, 0, true);
+            txtRoot = Theme.MakeTextBox(AppSettings.DefaultGameRoot, 0, true);
             txtRoot.TextAlignment = TextAlignment.Left;
             txtRoot.HorizontalAlignment = HorizontalAlignment.Stretch;
             txtRoot.ToolTip = "阴阳师安装根目录（含 bin\\onmyoji.exe）";
@@ -64,7 +65,7 @@ namespace OnmyojiTools.Ui
             return Theme.Card(sp);
         }
 
-        private Border BuildOpenStepper()
+        private Border BuildOpenStepper(int initial)
         {
             Border box = new Border
             {
@@ -86,7 +87,7 @@ namespace OnmyojiTools.Ui
             Grid.SetColumn(minus, 0);
             g.Children.Add(minus);
 
-            txtOpenNum = Theme.MakeTextBox("2", 54, false);
+            txtOpenNum = Theme.MakeTextBox(initial.ToString(), 54, false);
             txtOpenNum.Height = 34;
             txtOpenNum.Padding = new Thickness(0);
             txtOpenNum.BorderThickness = new Thickness(0);
@@ -97,6 +98,18 @@ namespace OnmyojiTools.Ui
             txtOpenNum.TextAlignment = TextAlignment.Center;
             txtOpenNum.VerticalContentAlignment = VerticalAlignment.Center;
             txtOpenNum.ToolTip = "可直接输入 1–10 之间的整数";
+            txtOpenNum.LostFocus += delegate
+            {
+                int value;
+                if (InputValidation.TryParseInt(txtOpenNum.Text, AppSettings.MinInstances, AppSettings.MaxInstances, out value))
+                {
+                    _controller.UpdateTargetInstances(value);
+                }
+                else
+                {
+                    txtOpenNum.Text = _controller.Settings.TargetInstances.ToString();
+                }
+            };
             Grid.SetColumn(txtOpenNum, 1);
             g.Children.Add(txtOpenNum);
 
@@ -134,30 +147,21 @@ namespace OnmyojiTools.Ui
             bd.AppendChild(cp);
             ControlTemplate t = new ControlTemplate(typeof(Button));
             t.VisualTree = bd;
-            Trigger hov = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
-            hov.Setters.Add(new Setter(Button.BackgroundProperty, Theme.B(Theme.SurfaceHover)));
-            hov.Setters.Add(new Setter(Button.ForegroundProperty, Theme.B(Theme.Ink)));
-            t.Triggers.Add(hov);
-            Trigger prs = new Trigger { Property = Button.IsPressedProperty, Value = true };
-            prs.Setters.Add(new Setter(Button.BackgroundProperty, Theme.B(Color.FromRgb(0xE9, 0xDF, 0xCF))));
-            t.Triggers.Add(prs);
+            Trigger hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
+            hover.Setters.Add(new Setter(Button.BackgroundProperty, Theme.B(Theme.SurfaceHover)));
+            hover.Setters.Add(new Setter(Button.ForegroundProperty, Theme.B(Theme.Ink)));
+            t.Triggers.Add(hover);
+            Trigger pressed = new Trigger { Property = Button.IsPressedProperty, Value = true };
+            pressed.Setters.Add(new Setter(Button.BackgroundProperty, Theme.B(Color.FromRgb(0xE9, 0xDF, 0xCF))));
+            t.Triggers.Add(pressed);
             b.Template = t;
 
             b.Click += delegate { onClick(); };
             return b;
         }
 
-        private void StepOpen(int delta)
-        {
-            int v;
-            if (!int.TryParse(txtOpenNum.Text.Trim(), out v)) v = 2;
-            v = Math.Max(1, Math.Min(10, v + delta));
-            txtOpenNum.Text = v.ToString();
-            txtOpenNum.CaretIndex = txtOpenNum.Text.Length;
-        }
-
         // ==================== 02 窗口排列 ====================
-        private Border BuildArrangeCard()
+        private Border BuildArrangeCard(int columns)
         {
             StackPanel sp = new StackPanel();
             sp.Children.Add(Theme.CardHeader("02", "窗口排列", "探测-定位两阶段，适配客户端尺寸锁定", null));
@@ -172,9 +176,9 @@ namespace OnmyojiTools.Ui
             Grid.SetColumn(colLabel, 0);
             rowCols.Children.Add(colLabel);
 
-            UIElement segments = BuildColSegments();
-            Grid.SetColumn(segments, 1);
-            rowCols.Children.Add(segments);
+            _colWrap = BuildColSegments(columns);
+            Grid.SetColumn(_colWrap, 1);
+            rowCols.Children.Add(_colWrap);
             sp.Children.Add(rowCols);
 
             Grid rowButtons = new Grid { Margin = new Thickness(0, 12, 0, 0) };
@@ -182,11 +186,11 @@ namespace OnmyojiTools.Ui
             rowButtons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
             rowButtons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            btnArrange = Theme.MakeButton("排列窗口", delegate { RunTask(BtnArrange_Click()); }, ButtonKind.Primary, 40);
+            btnArrange = Theme.MakeButton("排列窗口", delegate { BtnArrange_Click(); }, ButtonKind.Primary, 40);
             Grid.SetColumn(btnArrange, 0);
             rowButtons.Children.Add(btnArrange);
 
-            btnRefresh = Theme.MakeButton("刷新列表", BtnRefresh_Click, ButtonKind.Secondary, 40);
+            btnRefresh = Theme.MakeButton("刷新列表", delegate { BtnRefresh_Click(); }, ButtonKind.Secondary, 40);
             Grid.SetColumn(btnRefresh, 2);
             rowButtons.Children.Add(btnRefresh);
             sp.Children.Add(rowButtons);
@@ -198,7 +202,7 @@ namespace OnmyojiTools.Ui
             return Theme.Card(sp);
         }
 
-        private UIElement BuildColSegments()
+        private Border BuildColSegments(int selected)
         {
             Border wrap = new Border
             {
@@ -225,7 +229,7 @@ namespace OnmyojiTools.Ui
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
-                Border seg = new Border
+                Border segment = new Border
                 {
                     Height = 30,
                     CornerRadius = new CornerRadius(2),
@@ -235,58 +239,46 @@ namespace OnmyojiTools.Ui
                     Tag = false,
                     ToolTip = "每行 " + value + " 个窗口"
                 };
-                seg.MouseEnter += delegate
+                segment.MouseEnter += delegate
                 {
-                    if (!(bool)seg.Tag) seg.Background = Theme.B(Theme.SurfaceHover);
+                    if (!(bool)segment.Tag) segment.Background = Theme.B(Theme.SurfaceHover);
                 };
-                seg.MouseLeave += delegate
+                segment.MouseLeave += delegate
                 {
-                    if (!(bool)seg.Tag) seg.Background = Brushes.Transparent;
+                    if (!(bool)segment.Tag) segment.Background = Brushes.Transparent;
                 };
-                seg.MouseLeftButtonDown += delegate { SetArrangeCols(value); };
-                _colSegments[i] = seg;
+                segment.MouseLeftButtonDown += delegate { SetArrangeCols(value, true); };
+                _colSegments[i] = segment;
                 _colLabels[i] = label;
-                Grid.SetColumn(seg, i);
-                g.Children.Add(seg);
+                Grid.SetColumn(segment, i);
+                g.Children.Add(segment);
             }
+
             wrap.Child = g;
-            SetArrangeCols(2);
+            SetArrangeCols(selected, false);
             return wrap;
         }
 
-        private void SetArrangeCols(int cols)
-        {
-            _arrangeCols = cols;
-            for (int i = 0; i < 4; i++)
-            {
-                bool on = (i + 1) == cols;
-                _colSegments[i].Tag = on;
-                _colSegments[i].Background = on ? Theme.B(Theme.Ink) : Brushes.Transparent;
-                _colLabels[i].Foreground = Theme.B(on ? Colors.White : Theme.TextSub);
-                _colLabels[i].FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
-            }
-        }
-
         // ==================== 03 声音跟随 ====================
-        private Border BuildSoundCard()
+        private Border BuildSoundCard(bool initial)
         {
-            swSound = new SwitchControl(true);
-            swSound.Changed += ChkSound_Changed;
+            swSound = new SwitchControl(initial);
+            swSound.Changed += OnSoundChanged;
             swSound.ToolTip = "开启 / 关闭声音跟随聚焦";
 
             StackPanel sp = new StackPanel();
             sp.Children.Add(Theme.CardHeader("03", "声音跟随聚焦", "前台实例正常音量，其余自动降至 15%", swSound));
 
             StackPanel statusRow = new StackPanel { Orientation = Orientation.Horizontal };
-            _soundDot = Theme.Dot(5, Theme.Green);
+            _soundDot = Theme.Dot(5, initial ? Theme.Green : Theme.TextMuted);
             statusRow.Children.Add(_soundDot);
             lblSoundState = new TextBlock
             {
-                Text = "监控中",
+                Text = initial ? "监控中" : "已暂停",
                 FontFamily = Theme.FontUI,
                 FontSize = 10.8,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = Theme.B(Theme.Green),
+                Foreground = Theme.B(initial ? Theme.Green : Theme.TextMuted),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(6, 0, 0, 0)
             };
@@ -318,7 +310,6 @@ namespace OnmyojiTools.Ui
             card.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            // 标题右侧：数量 + 刷新
             Border countBadge = new Border
             {
                 Background = Theme.B(Theme.SurfaceSoft),
@@ -340,13 +331,12 @@ namespace OnmyojiTools.Ui
 
             StackPanel headExtra = new StackPanel { Orientation = Orientation.Horizontal };
             headExtra.Children.Add(countBadge);
-            Button refreshIcon = Theme.MakeIconButton("\uE72C", "刷新窗口列表", BtnRefresh_Click);
-            refreshIcon.Margin = new Thickness(8, 0, 0, 0);
-            headExtra.Children.Add(refreshIcon);
+            _refreshIcon = Theme.MakeIconButton("\uE72C", "刷新窗口列表", delegate { BtnRefresh_Click(); });
+            _refreshIcon.Margin = new Thickness(8, 0, 0, 0);
+            headExtra.Children.Add(_refreshIcon);
 
             card.Children.Add(Theme.CardHeader("04", "运行实例", "自动识别当前打开的阴阳师游戏窗口", headExtra));
 
-            // 表头
             StackPanel colHead = new StackPanel();
             Grid ch = new Grid { Margin = new Thickness(2, 0, 2, 6) };
             ch.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
@@ -365,7 +355,6 @@ namespace OnmyojiTools.Ui
             Grid.SetRow(colHead, 1);
             card.Children.Add(colHead);
 
-            // 列表 + 空态
             Grid listHost = new Grid { Margin = new Thickness(0, 4, 0, 0) };
             _instancePanel = new StackPanel();
             _instanceScroll = new ScrollViewer
@@ -381,7 +370,6 @@ namespace OnmyojiTools.Ui
             Grid.SetRow(listHost, 2);
             card.Children.Add(listHost);
 
-            // 底栏：统计 + 一键关闭
             Border foot = new Border
             {
                 BorderBrush = Theme.B(Theme.Line),
@@ -403,7 +391,7 @@ namespace OnmyojiTools.Ui
             };
             footGrid.Children.Add(lblScan);
 
-            btnCloseAll = Theme.MakeButton("关闭所有窗口", delegate { RunTask(BtnCloseAll_Click()); }, ButtonKind.Danger, 30);
+            btnCloseAll = Theme.MakeButton("关闭所有窗口", delegate { BtnCloseAll_Click(); }, ButtonKind.Danger, 30);
             btnCloseAll.Width = 126;
             btnCloseAll.FontSize = 11.2;
             btnCloseAll.HorizontalAlignment = HorizontalAlignment.Right;
@@ -420,14 +408,14 @@ namespace OnmyojiTools.Ui
             return outer;
         }
 
-        private static void AddHeadCell(Grid g, string text, int col)
+        private static void AddHeadCell(Grid g, string text, int column)
         {
-            TextBlock t = Theme.Text(text, 9.8, FontWeights.Normal, Theme.TextMuted);
-            Grid.SetColumn(t, col);
-            g.Children.Add(t);
+            TextBlock label = Theme.Text(text, 9.8, FontWeights.Normal, Theme.TextMuted);
+            Grid.SetColumn(label, column);
+            g.Children.Add(label);
         }
 
-        private Border BuildInstanceRow(int index, YysWindow w)
+        private Border BuildInstanceRow(int index, GameWindowInfo window)
         {
             Border row = new Border
             {
@@ -443,7 +431,7 @@ namespace OnmyojiTools.Ui
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(76) });
 
-            TextBlock idx = new TextBlock
+            TextBlock indexLabel = new TextBlock
             {
                 Text = index.ToString("00"),
                 FontFamily = Theme.FontSerif,
@@ -451,12 +439,12 @@ namespace OnmyojiTools.Ui
                 Foreground = Theme.B(Theme.TextMuted),
                 VerticalAlignment = VerticalAlignment.Center
             };
-            Grid.SetColumn(idx, 0);
-            g.Children.Add(idx);
+            Grid.SetColumn(indexLabel, 0);
+            g.Children.Add(indexLabel);
 
             TextBlock pid = new TextBlock
             {
-                Text = w.Pid.ToString(),
+                Text = window.ProcessId.ToString(),
                 FontFamily = Theme.FontMono,
                 FontSize = 10.4,
                 Foreground = Theme.B(Theme.TextSub),
@@ -467,25 +455,25 @@ namespace OnmyojiTools.Ui
 
             TextBlock title = new TextBlock
             {
-                Text = w.Title,
+                Text = window.Title,
                 FontFamily = Theme.FontUI,
                 FontSize = 11.8,
                 Foreground = Theme.B(Theme.Ink),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                ToolTip = w.Title
+                ToolTip = window.Title
             };
             Grid.SetColumn(title, 2);
             g.Children.Add(title);
 
             StackPanel state = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            state.Children.Add(Theme.Dot(5, w.Focused ? Theme.Accent : Theme.Green));
+            state.Children.Add(Theme.Dot(5, window.IsForeground ? Theme.Accent : Theme.Green));
             state.Children.Add(new TextBlock
             {
-                Text = w.Focused ? "聚焦" : "运行中",
+                Text = window.IsForeground ? "聚焦" : "运行中",
                 FontFamily = Theme.FontUI,
                 FontSize = 10.2,
-                Foreground = Theme.B(w.Focused ? Theme.Accent : Theme.TextSub),
+                Foreground = Theme.B(window.IsForeground ? Theme.Accent : Theme.TextSub),
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(5, 0, 0, 0)
             });
@@ -521,7 +509,7 @@ namespace OnmyojiTools.Ui
             desc.Margin = new Thickness(0, 4, 0, 0);
             sp.Children.Add(desc);
 
-            Button refresh = Theme.MakeButton("刷新列表", BtnRefresh_Click, ButtonKind.Secondary, 30);
+            Button refresh = Theme.MakeButton("刷新列表", delegate { BtnRefresh_Click(); }, ButtonKind.Secondary, 30);
             refresh.Width = 92;
             refresh.FontSize = 10.8;
             refresh.HorizontalAlignment = HorizontalAlignment.Center;
@@ -584,15 +572,15 @@ namespace OnmyojiTools.Ui
             head.Children.Add(clear);
             g.Children.Add(head);
 
-            Border line = new Border { Height = 1, Background = Theme.B(Theme.TerminalLine), Margin = new Thickness(0, 10, 0, 9) };
-            Grid.SetRow(line, 1);
-            g.Children.Add(line);
+            Border divider = new Border { Height = 1, Background = Theme.B(Theme.TerminalLine), Margin = new Thickness(0, 10, 0, 9) };
+            Grid.SetRow(divider, 1);
+            g.Children.Add(divider);
 
             txtLog = Theme.MakeLogBox();
             Grid.SetRow(txtLog, 2);
             g.Children.Add(txtLog);
 
-            Border card = new Border
+            return new Border
             {
                 Background = Theme.B(Theme.TerminalBg),
                 BorderBrush = Theme.B(Color.FromRgb(0x2C, 0x26, 0x1F)),
@@ -602,7 +590,6 @@ namespace OnmyojiTools.Ui
                 Child = g,
                 SnapsToDevicePixels = true
             };
-            return card;
         }
 
         // ==================== 关于弹层 ====================
@@ -625,7 +612,7 @@ namespace OnmyojiTools.Ui
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            card.MouseLeftButtonDown += delegate(object s, MouseButtonEventArgs e) { e.Handled = true; };
+            card.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { e.Handled = true; };
 
             StackPanel sp = new StackPanel();
 
@@ -635,8 +622,8 @@ namespace OnmyojiTools.Ui
 
             StackPanel brand = new StackPanel { Orientation = Orientation.Horizontal };
             brand.Children.Add(Theme.Seal(38));
-            StackPanel bt = new StackPanel { Margin = new Thickness(13, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            bt.Children.Add(new TextBlock
+            StackPanel brandText = new StackPanel { Margin = new Thickness(13, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            brandText.Children.Add(new TextBlock
             {
                 Text = "阴阳师工具",
                 FontFamily = Theme.FontUI,
@@ -644,7 +631,7 @@ namespace OnmyojiTools.Ui
                 FontWeight = FontWeights.Bold,
                 Foreground = Theme.B(Theme.Ink)
             });
-            bt.Children.Add(new TextBlock
+            brandText.Children.Add(new TextBlock
             {
                 Text = "ONMYOJI CONSOLE · v3.0 朱印界面",
                 FontFamily = Theme.FontSerif,
@@ -652,7 +639,7 @@ namespace OnmyojiTools.Ui
                 Foreground = Theme.B(Theme.TextMuted),
                 Margin = new Thickness(0, 3, 0, 0)
             });
-            brand.Children.Add(bt);
+            brand.Children.Add(brandText);
             Grid.SetColumn(brand, 0);
             head.Children.Add(brand);
 
@@ -662,7 +649,7 @@ namespace OnmyojiTools.Ui
             head.Children.Add(close);
             sp.Children.Add(head);
 
-            TextBlock intro = new TextBlock
+            sp.Children.Add(new TextBlock
             {
                 Text = "为多开而生的桌面控制台。启动、排列、声音跟随，一屏完成。",
                 FontFamily = Theme.FontUI,
@@ -670,15 +657,12 @@ namespace OnmyojiTools.Ui
                 Foreground = Theme.B(Theme.TextSub),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 14, 0, 0)
-            };
-            sp.Children.Add(intro);
+            });
 
             sp.Children.Add(Theme.Divider(16, 10));
-
             sp.Children.Add(AboutRow("01", "多开控制", "按目标开数补足实例，间隔 8 秒启动，避免客户端抢占失败。"));
             sp.Children.Add(AboutRow("02", "窗口排列", "先探测客户端接受的尺寸，再按 1–4 列网格自动排布。"));
             sp.Children.Add(AboutRow("03", "声音跟随", "聚焦实例恢复正常音量，其余自动降至 15%，全部失焦则全部降音。"));
-
             sp.Children.Add(Theme.Divider(14, 12));
 
             Border note = new Border
@@ -689,8 +673,8 @@ namespace OnmyojiTools.Ui
                 CornerRadius = new CornerRadius(3),
                 Padding = new Thickness(12, 10, 12, 10)
             };
-            StackPanel noteSp = new StackPanel();
-            noteSp.Children.Add(new TextBlock
+            StackPanel noteContent = new StackPanel();
+            noteContent.Children.Add(new TextBlock
             {
                 Text = "权限与安全",
                 FontFamily = Theme.FontUI,
@@ -698,7 +682,7 @@ namespace OnmyojiTools.Ui
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Theme.B(Theme.Ink)
             });
-            TextBlock noteBody = new TextBlock
+            noteContent.Children.Add(new TextBlock
             {
                 Text = "操作其他进程窗口与音量需要管理员权限，建议右键以管理员身份运行。本工具不修改任何游戏文件，音量调节通过 Windows WASAPI 完成。",
                 FontFamily = Theme.FontUI,
@@ -707,9 +691,8 @@ namespace OnmyojiTools.Ui
                 TextWrapping = TextWrapping.Wrap,
                 LineHeight = 17,
                 Margin = new Thickness(0, 4, 0, 0)
-            };
-            noteSp.Children.Add(noteBody);
-            note.Child = noteSp;
+            });
+            note.Child = noteContent;
             sp.Children.Add(note);
 
             StackPanel buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
@@ -729,13 +712,81 @@ namespace OnmyojiTools.Ui
             return overlay;
         }
 
+        // ==================== 确认弹层 ====================
+        private Grid BuildConfirmOverlay()
+        {
+            Grid overlay = new Grid { Visibility = Visibility.Collapsed, Opacity = 1 };
+
+            Border dim = new Border { Background = Theme.BA(0xB8, Theme.Ink), CornerRadius = new CornerRadius(12) };
+            dim.MouseLeftButtonDown += delegate { FinishConfirm(false); };
+            overlay.Children.Add(dim);
+
+            Border card = new Border
+            {
+                Width = 460,
+                Background = Theme.B(Theme.Surface),
+                BorderBrush = Theme.B(Theme.LineStrong),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(26, 22, 26, 20),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            card.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { e.Handled = true; };
+
+            StackPanel sp = new StackPanel();
+            _confirmTitle = new TextBlock
+            {
+                Text = "请确认",
+                FontFamily = Theme.FontUI,
+                FontSize = 16,
+                FontWeight = FontWeights.Bold,
+                Foreground = Theme.B(Theme.Ink)
+            };
+            sp.Children.Add(_confirmTitle);
+
+            _confirmMessage = new TextBlock
+            {
+                Text = "",
+                FontFamily = Theme.FontUI,
+                FontSize = 11.5,
+                Foreground = Theme.B(Theme.TextSub),
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = 19,
+                Margin = new Thickness(0, 10, 0, 0)
+            };
+            sp.Children.Add(_confirmMessage);
+
+            StackPanel buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 20, 0, 0)
+            };
+            Button cancel = Theme.MakeButton("取消", delegate { FinishConfirm(false); }, ButtonKind.Secondary, 34);
+            cancel.Width = 82;
+            cancel.FontSize = 11;
+            cancel.Margin = new Thickness(0, 0, 8, 0);
+            buttons.Children.Add(cancel);
+
+            _confirmOkButton = Theme.MakeButton("确认", delegate { FinishConfirm(true); }, ButtonKind.Danger, 34);
+            _confirmOkButton.Width = 104;
+            _confirmOkButton.FontSize = 11;
+            buttons.Children.Add(_confirmOkButton);
+            sp.Children.Add(buttons);
+
+            card.Child = sp;
+            overlay.Children.Add(card);
+            return overlay;
+        }
+
         private static UIElement AboutRow(string index, string title, string desc)
         {
             Grid g = new Grid { Margin = new Thickness(0, 6, 0, 6) };
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            TextBlock idx = new TextBlock
+            TextBlock indexLabel = new TextBlock
             {
                 Text = index,
                 FontFamily = Theme.FontSerif,
@@ -745,8 +796,8 @@ namespace OnmyojiTools.Ui
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(0, 2, 0, 0)
             };
-            Grid.SetColumn(idx, 0);
-            g.Children.Add(idx);
+            Grid.SetColumn(indexLabel, 0);
+            g.Children.Add(indexLabel);
 
             StackPanel right = new StackPanel();
             right.Children.Add(new TextBlock
@@ -770,17 +821,6 @@ namespace OnmyojiTools.Ui
             Grid.SetColumn(right, 1);
             g.Children.Add(right);
             return g;
-        }
-
-        // 观察后台任务异常，避免未处理异常静默丢失
-        private void RunTask(System.Threading.Tasks.Task t)
-        {
-            if (t == null) return;
-            t.ContinueWith(delegate(System.Threading.Tasks.Task x)
-            {
-                Exception ex = x.Exception == null ? null : x.Exception.GetBaseException();
-                Log("操作失败：" + (ex == null ? "未知错误" : ex.Message));
-            }, System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
         }
     }
 }

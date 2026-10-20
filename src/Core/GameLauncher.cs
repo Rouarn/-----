@@ -1,57 +1,99 @@
 using System;
 using System.Diagnostics;
-using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
+using OnmyojiTools.Diagnostics;
 
 namespace OnmyojiTools.Core
 {
-    /// <summary>多开启动器：从游戏根目录启动 onmyoji.exe，按固定间隔补足目标实例数</summary>
-    internal static class GameLauncher
+    /// <summary>补足目标开数；间隔启动，支持取消。</summary>
+    internal sealed class GameLauncher : IGameLauncher
     {
-        private const int INSTANCE_INTERVAL_MS = 8000;
+        private const int StartIntervalMilliseconds = 8000;
+        private const int SettleMilliseconds = 6000;
 
-        /// <summary>当前运行中的游戏实例数（排除工具自身）</summary>
-        public static int CountRunning()
+        private readonly IGameProcessService _processes;
+
+        public GameLauncher(IGameProcessService processes)
         {
-            return GameProcesses.CollectIds().Count;
+            _processes = processes;
         }
 
-        /// <summary>补足目标开数（调用前需先校验游戏根目录有效性）</summary>
-        public static void Launch(int target, string yysRoot, Action<string> log)
+        public async Task<LaunchResult> LaunchAsync(int target, string gameRoot, AppLogger logger, CancellationToken cancellationToken)
         {
-            log(string.Format("本次目标开数 = {0}（读自输入框）", target));
-            int running = CountRunning();
-            int need = Math.Max(0, target - running);
-            log(string.Format("当前已开 {0} 个实例，目标 {1} 开，需新开 {2} 个", running, target, need));
+            LaunchResult result = new LaunchResult();
+            target = InputValidation.Clamp(target, InputValidation.MinInstances, InputValidation.MaxInstances);
+            result.Target = target;
+
+            string executable;
+            string error;
+            if (!InputValidation.TryValidateGameRoot(gameRoot, out executable, out error))
+            {
+                result.Error = error;
+                logger.Log("多开失败：" + error);
+                return result;
+            }
+
+            result.RunningBefore = _processes.CountRunningGames();
+            int need = Math.Max(0, target - result.RunningBefore);
+            logger.Log(string.Format("目标 {0} 开，当前 {1} 个，需补开 {2} 个。", target, result.RunningBefore, need));
+
             if (need == 0)
             {
-                log("已满足目标开数，无需再开。");
-                return;
+                result.RunningAfter = result.RunningBefore;
+                logger.Log("已满足目标开数，无需再开。");
+                return result;
             }
-            for (int i = 0; i < need; i++)
+
+            try
             {
-                try
+                for (int i = 0; i < need; i++)
                 {
-                    ProcessStartInfo psi = new ProcessStartInfo
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    try
                     {
-                        FileName = Path.Combine(yysRoot, "bin", "onmyoji.exe"),
-                        WorkingDirectory = yysRoot,
-                        UseShellExecute = true
-                    };
-                    Process.Start(psi);
-                    log(string.Format("已启动第 {0}/{1} 个新实例...", i + 1, need));
+                        ProcessStartInfo startInfo = new ProcessStartInfo
+                        {
+                            FileName = executable,
+                            WorkingDirectory = gameRoot,
+                            UseShellExecute = true
+                        };
+                        using (Process started = Process.Start(startInfo))
+                        {
+                            // 只负责拉起，不等待游戏自身初始化
+                        }
+                        result.Started++;
+                        logger.Log(string.Format("已启动第 {0}/{1} 个新实例。", i + 1, need));
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Error = "启动失败：" + ex.Message;
+                        logger.LogError("启动实例失败", ex);
+                        break;
+                    }
+
+                    if (i < need - 1)
+                        await Task.Delay(StartIntervalMilliseconds, cancellationToken).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+
+                if (string.IsNullOrEmpty(result.Error) && result.Started > 0)
                 {
-                    log("启动失败：" + ex.Message);
-                    break;
+                    try { await Task.Delay(SettleMilliseconds, cancellationToken).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { result.Canceled = true; }
                 }
-                if (i < need - 1) Thread.Sleep(INSTANCE_INTERVAL_MS);
             }
-            Thread.Sleep(6000);
-            int now = CountRunning();
-            log("启动流程结束，当前 onmyoji 进程数：" + now);
-            if (now < target) log("警告：部分实例可能未常驻（游戏启动耗时较长，可稍后点「刷新」确认）。");
+            catch (OperationCanceledException)
+            {
+                result.Canceled = true;
+                logger.Log("多开操作已取消。");
+            }
+
+            result.RunningAfter = _processes.CountRunningGames();
+            logger.Log(string.Format("多开流程结束，当前运行 {0} 个实例。", result.RunningAfter));
+            if (result.RunningAfter < target && !result.Canceled && string.IsNullOrEmpty(result.Error))
+                logger.Log("提示：部分实例可能仍在启动中，稍后可点刷新确认。");
+            return result;
         }
     }
 }

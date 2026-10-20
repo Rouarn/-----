@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Principal;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,17 +12,23 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
-using System.Windows.Threading;
-using OnmyojiTools.Audio;
+using OnmyojiTools.App;
 using OnmyojiTools.Core;
+using OnmyojiTools.Diagnostics;
 using Path = System.IO.Path;
 
 namespace OnmyojiTools.Ui
 {
-    /// <summary>主窗口：和纸 · 墨 · 朱印风格的单屏控制台</summary>
-    public partial class MainWindow : Window
+    /// <summary>
+    /// 主窗口：和纸 · 墨 · 朱印控制台。只负责视图状态和用户交互；
+    /// 所有进程/窗口/音频操作都通过 AppController 完成。
+    /// </summary>
+    internal sealed partial class MainWindow : Window
     {
-        // ---------- 控件 ----------
+        private readonly AppController _controller;
+        private readonly AppLogger _logger;
+        private readonly bool _isAdmin = IsAdministrator();
+
         private TextBox txtRoot;
         private TextBox txtOpenNum;
         private TextBox txtLog;
@@ -34,22 +40,35 @@ namespace OnmyojiTools.Ui
         private Ellipse _statusDot;
         private Ellipse _soundDot;
         private Button btnOpen, btnArrange, btnRefresh, btnCloseAll, btnBrowse, btnPin;
+        private Button _refreshIcon;
         private StackPanel _instancePanel;
         private ScrollViewer _instanceScroll;
         private Border _emptyState;
+        private Border _openStepper;
+        private Border _colWrap;
         private SwitchControl swSound;
-        private DispatcherTimer timerSound;
-        private SoundFocusController _sf;
         private Grid _aboutOverlay;
+        private Grid _confirmOverlay;
+        private TextBlock _confirmTitle;
+        private TextBlock _confirmMessage;
+        private Button _confirmOkButton;
+        private TaskCompletionSource<bool> _confirmResult;
         private Border _shell;
+        private Border _busyPanel;
+        private TextBlock _busyText;
+
         private Border[] _colSegments = new Border[4];
         private TextBlock[] _colLabels = new TextBlock[4];
-        private int _arrangeCols = 2;
-        private readonly AppConfig _config = new AppConfig();
-        private readonly bool _isAdmin = IsAdministrator();
+        private int _arrangeCols;
+        private bool _closing;
+        private bool _suppressSoundEvents;
 
-        public MainWindow()
+        internal MainWindow(AppController controller, AppLogger logger)
         {
+            _controller = controller;
+            _logger = logger;
+            _arrangeCols = controller.Settings.Columns;
+
             Title = "阴阳师工具 · 桌面控制台";
             Width = 1120;
             Height = 760;
@@ -66,45 +85,84 @@ namespace OnmyojiTools.Ui
             Resources.MergedDictionaries.Add(Theme.CommonResources());
 
             BuildUi();
-            _config.Load();
-            txtRoot.Text = _config.YysRoot;
 
-            // 声音跟随聚焦：常驻监控
-            _sf = new SoundFocusController();
-            timerSound = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-            timerSound.Tick += TimerSound_Tick;
-            Closed += delegate { timerSound.Stop(); };
-            if (swSound != null && swSound.IsOn) timerSound.Start();
+            _logger.Attach(AppendLog);
+            txtRoot.Text = controller.Settings.GameRoot;
+            txtOpenNum.Text = controller.Settings.TargetInstances.ToString();
+            SetArrangeCols(controller.Settings.Columns, false);
+            UpdateSoundState(controller.Settings.SoundFocusEnabled, false);
+            UpdateBusyState();
 
-            Log("控制台已就绪。");
-            Log("游戏目录：" + _config.YysRoot);
-            if (!_isAdmin) Log("提示：当前为普通权限，移动游戏窗口或操作音量可能失败，建议以管理员身份运行。");
+            _logger.Log("控制台已就绪。");
+            _logger.Log("游戏目录：" + controller.Settings.GameRoot);
+            if (!_isAdmin) _logger.Log("提示：当前为普通权限，窗口与音量操作可能失败，建议以管理员身份运行。");
 
-            // 启动即激活前台，避免无边框窗口首次点击只激活不触发按钮
-            Loaded += delegate
-            {
-                Activate();
-                Topmost = false;
-                if (_shell != null)
-                {
-                    DoubleAnimation fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220));
-                    fade.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
-                    _shell.BeginAnimation(UIElement.OpacityProperty, fade);
-                }
-            };
+            _controller.StateChanged += Controller_StateChanged;
 
-            PreviewKeyDown += MainWindow_PreviewKeyDown;
+            Loaded += Window_Loaded;
+            Closing += Window_Closing;
+            PreviewKeyDown += Window_PreviewKeyDown;
         }
 
-        private static bool IsAdministrator()
+        // ==================== 生命周期 ====================
+        private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            try
+            Activate();
+            Topmost = false;
+
+            if (_shell != null)
             {
-                WindowsIdentity id = WindowsIdentity.GetCurrent();
-                WindowsPrincipal p = new WindowsPrincipal(id);
-                return p.IsInRole(WindowsBuiltInRole.Administrator);
+                DoubleAnimation fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(220));
+                fade.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
+                _shell.BeginAnimation(UIElement.OpacityProperty, fade);
             }
-            catch { return false; }
+
+            _controller.Start();
+            UpdateRunningLabel();
+            RunRefresh();
+        }
+
+        private void Window_Closing(object sender, CancelEventArgs e)
+        {
+            if (_closing) return;
+            _closing = true;
+
+            FinishConfirm(false);
+            CloseAbout();
+            _controller.StateChanged -= Controller_StateChanged;
+            _controller.CancelCurrentOperation();
+
+            try { _controller.Dispose(); }
+            catch (Exception ex) { _logger.LogError("关闭时清理资源失败", ex); }
+
+            _logger.Detach();
+        }
+
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                if (_confirmOverlay != null && _confirmOverlay.Visibility == Visibility.Visible)
+                {
+                    FinishConfirm(false);
+                    e.Handled = true;
+                }
+                else if (_aboutOverlay != null && _aboutOverlay.Visibility == Visibility.Visible)
+                {
+                    CloseAbout();
+                    e.Handled = true;
+                }
+                else if (_controller.IsBusy)
+                {
+                    CancelBusy();
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.F5 && !_controller.IsBusy)
+            {
+                BtnRefresh_Click();
+                e.Handled = true;
+            }
         }
 
         // ==================== 界面构建 ====================
@@ -126,25 +184,23 @@ namespace OnmyojiTools.Ui
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
 
-            // ---- 顶栏 ----
             UIElement header = BuildHeader();
             Grid.SetRow(header, 0);
             root.Children.Add(header);
 
-            // ---- 主体 ----
             Grid body = new Grid { Margin = new Thickness(22, 18, 22, 14) };
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(356) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             StackPanel left = new StackPanel();
-            Border cardLaunch = BuildLaunchCard();
+            Border cardLaunch = BuildLaunchCard(_controller.Settings.TargetInstances);
             cardLaunch.Margin = new Thickness(0, 0, 0, 14);
             left.Children.Add(cardLaunch);
-            Border cardArrange = BuildArrangeCard();
+            Border cardArrange = BuildArrangeCard(_controller.Settings.Columns);
             cardArrange.Margin = new Thickness(0, 0, 0, 14);
             left.Children.Add(cardArrange);
-            left.Children.Add(BuildSoundCard());
+            left.Children.Add(BuildSoundCard(_controller.Settings.SoundFocusEnabled));
             Grid.SetColumn(left, 0);
             body.Children.Add(left);
 
@@ -164,15 +220,17 @@ namespace OnmyojiTools.Ui
             Grid.SetRow(body, 1);
             root.Children.Add(body);
 
-            // ---- 底栏 ----
             UIElement footer = BuildFooter();
             Grid.SetRow(footer, 2);
             root.Children.Add(footer);
 
-            // ---- 关于弹层 ----
             _aboutOverlay = BuildAboutOverlay();
             Grid.SetRowSpan(_aboutOverlay, 3);
             root.Children.Add(_aboutOverlay);
+
+            _confirmOverlay = BuildConfirmOverlay();
+            Grid.SetRowSpan(_confirmOverlay, 3);
+            root.Children.Add(_confirmOverlay);
 
             _shell.Child = root;
             Content = _shell;
@@ -195,9 +253,7 @@ namespace OnmyojiTools.Ui
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            // 品牌：朱印 + 名称 + 英文小标
             StackPanel brand = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             brand.Children.Add(Theme.Seal(30));
             StackPanel brandText = new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
@@ -237,7 +293,37 @@ namespace OnmyojiTools.Ui
             Grid.SetColumn(brand, 0);
             g.Children.Add(brand);
 
-            // 运行状态模块
+            // 操作进行中的提示与取消按钮
+            _busyText = new TextBlock
+            {
+                Text = "",
+                FontFamily = Theme.FontUI,
+                FontSize = 10.5,
+                Foreground = Theme.B(Theme.Accent),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Button busyCancel = Theme.MakeButton("取消", CancelBusy, ButtonKind.Link, 22);
+            busyCancel.FontSize = 10.5;
+            busyCancel.Margin = new Thickness(6, 0, 0, 0);
+            StackPanel busyContent = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            busyContent.Children.Add(_busyText);
+            busyContent.Children.Add(busyCancel);
+            _busyPanel = new Border
+            {
+                Background = Theme.B(Theme.AccentSoft),
+                BorderBrush = Theme.B(Theme.AccentLine),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(3),
+                Padding = new Thickness(10, 2, 4, 2),
+                Margin = new Thickness(0, 0, 12, 0),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed,
+                Child = busyContent
+            };
+            Grid.SetColumn(_busyPanel, 1);
+            g.Children.Add(_busyPanel);
+
             _statusDot = Theme.Dot(6, Theme.TextMuted);
             lblRunning = new TextBlock
             {
@@ -277,14 +363,12 @@ namespace OnmyojiTools.Ui
                 CornerRadius = new CornerRadius(3),
                 Padding = new Thickness(10, 4, 11, 4),
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 0),
                 Child = status,
                 ToolTip = "当前正在运行的阴阳师进程数"
             };
             Grid.SetColumn(statusBox, 2);
             g.Children.Add(statusBox);
 
-            // 分隔 + 窗口按钮
             Border sep = new Border
             {
                 Width = 1,
@@ -300,11 +384,9 @@ namespace OnmyojiTools.Ui
             btnPin = Theme.MakeChromeButton("\uE840", false, TogglePin, "窗口置顶：始终显示在最前");
             btnPin.Margin = new Thickness(0, 0, 4, 0);
             chrome.Children.Add(btnPin);
-            Button btnMin = Theme.MakeChromeButton("\uE921", false, delegate { WindowState = WindowState.Minimized; }, "最小化");
-            chrome.Children.Add(btnMin);
-            Button btnClose = Theme.MakeChromeButton("\uE8BB", true, delegate { Close(); }, "关闭");
-            chrome.Children.Add(btnClose);
-            Grid.SetColumn(chrome, 5);
+            chrome.Children.Add(Theme.MakeChromeButton("\uE921", false, delegate { WindowState = WindowState.Minimized; }, "最小化"));
+            chrome.Children.Add(Theme.MakeChromeButton("\uE8BB", true, delegate { Close(); }, "关闭"));
+            Grid.SetColumn(chrome, 4);
             g.Children.Add(chrome);
 
             bar.Child = g;
@@ -353,8 +435,7 @@ namespace OnmyojiTools.Ui
             g.Children.Add(left);
 
             StackPanel right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-            Ellipse adminDot = Theme.Dot(5, _isAdmin ? Theme.Green : Theme.Amber);
-            right.Children.Add(adminDot);
+            right.Children.Add(Theme.Dot(5, _isAdmin ? Theme.Green : Theme.Amber));
             lblAdmin = new TextBlock
             {
                 Text = _isAdmin ? "管理员权限" : "普通权限",
@@ -392,35 +473,230 @@ namespace OnmyojiTools.Ui
             return bar;
         }
 
-        // ---------- 标题栏交互 ----------
+        // ==================== 状态更新 ====================
+        private void Controller_StateChanged(object sender, EventArgs e)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(UpdateBusyState));
+                return;
+            }
+            UpdateBusyState();
+        }
+
+        private void UpdateBusyState()
+        {
+            bool busy = _controller.IsBusy;
+            if (_busyPanel != null)
+            {
+                _busyPanel.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+                if (_busyText != null) _busyText.Text = BusyLabel(_controller.CurrentOperation);
+            }
+
+            if (btnOpen != null) btnOpen.IsEnabled = !busy;
+            if (btnArrange != null) btnArrange.IsEnabled = !busy;
+            if (btnCloseAll != null) btnCloseAll.IsEnabled = !busy;
+            if (btnRefresh != null) btnRefresh.IsEnabled = !busy;
+            if (btnBrowse != null) btnBrowse.IsEnabled = !busy;
+            if (_refreshIcon != null) _refreshIcon.IsEnabled = !busy;
+            if (_openStepper != null) _openStepper.IsEnabled = !busy;
+            if (_colWrap != null) _colWrap.IsEnabled = !busy;
+        }
+
+        private static string BusyLabel(string operation)
+        {
+            if (operation == "launch") return "正在多开…";
+            if (operation == "arrange") return "正在排列窗口…";
+            if (operation == "close") return "正在关闭窗口…";
+            return "正在处理…";
+        }
+
+        private void CancelBusy()
+        {
+            if (!_controller.IsBusy) return;
+            _controller.CancelCurrentOperation();
+            _logger.Log("正在取消当前操作…");
+        }
+
+        private void UpdateRunningLabel()
+        {
+            int count = _controller.GetRunningCount();
+            if (lblRunning != null) lblRunning.Text = count.ToString();
+            if (_statusDot != null) _statusDot.Fill = Theme.B(count > 0 ? Theme.Green : Theme.TextMuted);
+        }
+
+        private void UpdateSoundState(bool enabled, bool updateSwitch)
+        {
+            if (updateSwitch && swSound != null)
+            {
+                _suppressSoundEvents = true;
+                swSound.IsOn = enabled;
+                _suppressSoundEvents = false;
+            }
+            if (lblSoundState != null)
+            {
+                lblSoundState.Text = enabled ? "监控中" : "已暂停";
+                lblSoundState.Foreground = Theme.B(enabled ? Theme.Green : Theme.TextMuted);
+            }
+            if (_soundDot != null) _soundDot.Fill = Theme.B(enabled ? Theme.Green : Theme.TextMuted);
+        }
+
+        private void AppendLog(string message)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                try { Dispatcher.BeginInvoke(new Action<string>(AppendLog), message); }
+                catch { }
+                return;
+            }
+            if (txtLog == null) return;
+            txtLog.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + message + Environment.NewLine);
+            txtLog.ScrollToEnd();
+        }
+
         private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            // 点击交互控件时不触发拖拽（DragMove 会吞掉按钮 Click）
-            DependencyObject src = e.OriginalSource as DependencyObject;
-            while (src != null)
+            DependencyObject source = e.OriginalSource as DependencyObject;
+            while (source != null)
             {
-                if (src is ButtonBase || src is SwitchControl || src is TextBox) return;
-                src = VisualTreeHelper.GetParent(src);
+                if (source is ButtonBase || source is SwitchControl || source is TextBox) return;
+                source = VisualTreeHelper.GetParent(source);
             }
             if (e.LeftButton == MouseButtonState.Pressed) DragMove();
         }
 
-        private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        // ==================== 操作入口 ====================
+        private async void BtnOpen_Click()
         {
-            if (e.Key == Key.Escape && _aboutOverlay != null && _aboutOverlay.Visibility == Visibility.Visible)
+            if (_controller.IsBusy) return;
+            int target;
+            if (!InputValidation.TryParseInt(txtOpenNum.Text, AppSettings.MinInstances, AppSettings.MaxInstances, out target))
             {
-                CloseAbout();
-                e.Handled = true;
+                _logger.Log(string.Format("输入无效：请输入 {0}-{1} 之间的整数。", AppSettings.MinInstances, AppSettings.MaxInstances));
+                txtOpenNum.Focus();
+                txtOpenNum.SelectAll();
+                return;
             }
-            else if (e.Key == Key.F5)
+
+            try
             {
+                _controller.UpdateTargetInstances(target);
+                await _controller.LaunchAsync(target);
                 UpdateRunningLabel();
-                RefreshList();
-                e.Handled = true;
+                await RefreshListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("多开操作失败", ex);
             }
         }
 
-        // ---------- 置顶 ----------
+        private async void BtnArrange_Click()
+        {
+            if (_controller.IsBusy) return;
+            try
+            {
+                await _controller.ArrangeAsync(_arrangeCols);
+                UpdateRunningLabel();
+                await RefreshListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("窗口排列失败", ex);
+            }
+        }
+
+        private async void BtnCloseAll_Click()
+        {
+            if (_controller.IsBusy) return;
+
+            bool confirmed = await ConfirmAsync(
+                "关闭所有游戏窗口",
+                "将向所有阴阳师窗口发送退出请求，并自动点击退出确认；3 秒内未退出会强制结束进程。是否继续？",
+                "确认关闭");
+            if (!confirmed) return;
+
+            try
+            {
+                await _controller.CloseAllAsync();
+                UpdateRunningLabel();
+                await RefreshListAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("关闭所有窗口失败", ex);
+            }
+        }
+
+        private async void BtnRefresh_Click()
+        {
+            if (_controller.IsBusy) return;
+            UpdateRunningLabel();
+            await RefreshListAsync();
+        }
+
+        private void BtnBrowse_Click()
+        {
+            if (_controller.IsBusy) return;
+            using (System.Windows.Forms.FolderBrowserDialog dialog = new System.Windows.Forms.FolderBrowserDialog())
+            {
+                dialog.Description = "选择阴阳师安装根目录（含 bin\\onmyoji.exe 的目录）";
+                dialog.SelectedPath = Directory.Exists(_controller.Settings.GameRoot)
+                    ? _controller.Settings.GameRoot
+                    : AppSettings.DefaultGameRoot;
+                dialog.ShowNewFolderButton = false;
+
+                if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+
+                string error;
+                if (!_controller.TrySetGameRoot(dialog.SelectedPath, out error))
+                {
+                    _logger.Log(error);
+                    return;
+                }
+                txtRoot.Text = _controller.Settings.GameRoot;
+            }
+        }
+
+        private void StepOpen(int delta)
+        {
+            int value;
+            if (!int.TryParse(txtOpenNum.Text.Trim(), out value)) value = _controller.Settings.TargetInstances;
+            value = AppSettings.Clamp(value + delta, AppSettings.MinInstances, AppSettings.MaxInstances);
+            txtOpenNum.Text = value.ToString();
+            txtOpenNum.CaretIndex = txtOpenNum.Text.Length;
+            _controller.UpdateTargetInstances(value);
+        }
+
+        private void SetArrangeCols(int columns, bool persist)
+        {
+            _arrangeCols = AppSettings.Clamp(columns, AppSettings.MinColumns, AppSettings.MaxColumns);
+            for (int i = 0; i < 4; i++)
+            {
+                bool on = (i + 1) == _arrangeCols;
+                if (_colSegments[i] == null) continue;
+                _colSegments[i].Tag = on;
+                _colSegments[i].Background = on ? Theme.B(Theme.Ink) : Brushes.Transparent;
+                _colLabels[i].Foreground = Theme.B(on ? Colors.White : Theme.TextSub);
+                _colLabels[i].FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
+            }
+            if (persist) _controller.UpdateColumns(_arrangeCols);
+        }
+
+        private void OnSoundChanged(bool enabled)
+        {
+            if (_suppressSoundEvents) return;
+            try
+            {
+                _controller.SetSoundFocusEnabled(enabled);
+                UpdateSoundState(enabled, false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError("切换声音跟随失败", ex);
+            }
+        }
+
         private void TogglePin()
         {
             Topmost = !Topmost;
@@ -440,204 +716,68 @@ namespace OnmyojiTools.Ui
                 btnPin.Foreground = Theme.B(Theme.TextSub);
                 btnPin.ToolTip = "窗口置顶：始终显示在最前";
             }
-            Log("窗口置顶已" + (Topmost ? "开启" : "关闭") + "。");
+            _logger.Log("窗口置顶已" + (Topmost ? "开启" : "关闭") + "。");
         }
 
-        // ---------- 日志 ----------
-        private void Log(string s)
+        // ==================== 列表刷新 ====================
+        private void RunRefresh()
         {
-            if (!Dispatcher.CheckAccess())
+            Task ignored = RefreshListAsync();
+            ignored.ContinueWith(delegate(System.Threading.Tasks.Task task)
             {
-                Dispatcher.BeginInvoke(new Action<string>(Log), s);
-                return;
-            }
-            if (txtLog == null) return;
-            txtLog.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + s + Environment.NewLine);
-            txtLog.ScrollToEnd();
+                Exception ex = task.Exception == null ? null : task.Exception.GetBaseException();
+                if (ex != null) _logger.LogError("刷新窗口列表失败", ex);
+            }, System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
         }
 
-        // ==================== 声音跟随聚焦 ====================
-        private void ChkSound_Changed(bool on)
+        internal async Task RefreshListAsync()
         {
-            if (timerSound == null) return;
-            if (on)
-            {
-                timerSound.Start();
-                Log("声音跟随聚焦已开启：聚焦窗口正常音量，失焦窗口自动调小。");
-            }
-            else
-            {
-                timerSound.Stop();
-                Log("声音跟随聚焦已关闭。");
-            }
-            if (lblSoundState != null)
-            {
-                lblSoundState.Text = on ? "监控中" : "已暂停";
-                lblSoundState.Foreground = Theme.B(on ? Theme.Green : Theme.TextMuted);
-            }
-            if (_soundDot != null) _soundDot.Fill = Theme.B(on ? Theme.Green : Theme.TextMuted);
-        }
+            if (_controller.IsBusy || _closing) return;
 
-        private int _scanning;
-
-        private void TimerSound_Tick(object sender, EventArgs e)
-        {
-            // 声音扫描较重（WASAPI 枚举 + 日志），必须移出 UI 线程，否则每 500ms 卡住界面导致点击无反应
-            if (Interlocked.Exchange(ref _scanning, 1) == 1) return;
             try
             {
-                Task.Run(delegate
-                {
-                    try { _sf.Scan(); }
-                    finally { Interlocked.Exchange(ref _scanning, 0); }
-                });
-            }
-            catch { Interlocked.Exchange(ref _scanning, 0); }
-        }
+                IReadOnlyList<GameWindowInfo> windows = await _controller.GetWindowsAsync();
+                if (_closing) return;
 
-        // ==================== 多开 ====================
-        private async Task BtnOpen_Click()
-        {
-            Log("=== 开始多开 ===");
-            int target;
-            if (!ReadNum(txtOpenNum, 1, 10, out target)) return;
-            btnOpen.IsEnabled = false;
-            txtOpenNum.IsEnabled = false;
-            try
-            {
-                await Task.Run(delegate
-                {
-                    if (!_config.Validate(Log)) return;
-                    GameLauncher.Launch(target, _config.YysRoot, Log);
-                });
+                _instancePanel.Children.Clear();
+                for (int i = 0; i < windows.Count; i++)
+                    _instancePanel.Children.Add(BuildInstanceRow(i + 1, windows[i]));
+
+                bool empty = windows.Count == 0;
+                _emptyState.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+                _instanceScroll.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+                lblWinCount.Text = windows.Count + " 个窗口";
+                lblScan.Text = "共 " + windows.Count + " 个 · 最后刷新 " + DateTime.Now.ToString("HH:mm:ss");
+                _logger.Log("识别到阴阳师窗口 " + windows.Count + " 个。");
             }
-            finally
+            catch (Exception ex)
             {
-                btnOpen.IsEnabled = true;
-                txtOpenNum.IsEnabled = true;
-                UpdateRunningLabel();
-                RefreshList();
+                _logger.LogError("刷新窗口列表失败", ex);
             }
         }
 
-        private bool ReadNum(TextBox box, int min, int max, out int val)
+        // ==================== 确认弹层 ====================
+        private Task<bool> ConfirmAsync(string title, string message, string confirmText)
         {
-            if (int.TryParse(box.Text.Trim(), out val) && val >= min && val <= max) return true;
-            Log(string.Format("输入无效：请输入 {0}-{1} 之间的整数（当前输入：{2}）。", min, max, box.Text));
-            box.Focus();
-            box.SelectAll();
-            return false;
+            if (_confirmOverlay == null || _confirmResult != null) return Task.FromResult(false);
+
+            _confirmTitle.Text = title;
+            _confirmMessage.Text = message;
+            _confirmOkButton.Content = confirmText;
+            _confirmResult = new TaskCompletionSource<bool>();
+            _confirmOverlay.Visibility = Visibility.Visible;
+            _confirmOverlay.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140)));
+            return _confirmResult.Task;
         }
 
-        internal void UpdateRunningLabel()
+        private void FinishConfirm(bool result)
         {
-            if (!Dispatcher.CheckAccess())
-            {
-                Dispatcher.BeginInvoke(new Action(UpdateRunningLabel));
-                return;
-            }
-            int n = GameLauncher.CountRunning();
-            if (lblRunning != null) lblRunning.Text = n.ToString();
-            if (_statusDot != null) _statusDot.Fill = Theme.B(n > 0 ? Theme.Green : Theme.TextMuted);
-        }
-
-        // ==================== 一键关闭所有游戏窗口 ====================
-        private async Task BtnCloseAll_Click()
-        {
-            Log("=== 一键关闭所有游戏 ===");
-            btnCloseAll.IsEnabled = false;
-            try
-            {
-                await Task.Run(delegate { GameCloser.CloseAll(Log); });
-            }
-            finally
-            {
-                btnCloseAll.IsEnabled = true;
-            }
-            await Task.Delay(400);
-            UpdateRunningLabel();
-            RefreshList();
-        }
-
-        // ==================== 排列（探测-定位两阶段） ====================
-        private async Task BtnArrange_Click()
-        {
-            Log("=== 开始排列窗口（每行 " + _arrangeCols + " 个）===");
-            Mouse.OverrideCursor = Cursors.Wait;
-            btnArrange.IsEnabled = false;
-            try
-            {
-                await Task.Run(delegate { WindowArranger.Arrange(_arrangeCols, Log); });
-            }
-            finally
-            {
-                btnArrange.IsEnabled = true;
-                Mouse.OverrideCursor = null;
-            }
-            UpdateRunningLabel();
-            RefreshList();
-        }
-
-        internal void RefreshList()
-        {
-            if (!Dispatcher.CheckAccess())
-            {
-                Dispatcher.BeginInvoke(new Action(RefreshList));
-                return;
-            }
-            List<YysWindow> wins = WindowFinder.EnumerateYys();
-            _instancePanel.Children.Clear();
-            for (int i = 0; i < wins.Count; i++)
-                _instancePanel.Children.Add(BuildInstanceRow(i + 1, wins[i]));
-
-            bool empty = wins.Count == 0;
-            _emptyState.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
-            _instanceScroll.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
-            lblWinCount.Text = wins.Count + " 个窗口";
-            lblScan.Text = "共 " + wins.Count + " 个 · 最后刷新 " + DateTime.Now.ToString("HH:mm:ss");
-            Log("识别到阴阳师窗口 " + wins.Count + " 个");
-        }
-
-        private void BtnRefresh_Click()
-        {
-            UpdateRunningLabel();
-            RefreshList();
-        }
-
-        private void BtnBrowse_Click()
-        {
-            using (System.Windows.Forms.FolderBrowserDialog dlg = new System.Windows.Forms.FolderBrowserDialog())
-            {
-                dlg.Description = "选择阴阳师安装根目录（含 bin\\onmyoji.exe 的目录）";
-                dlg.SelectedPath = Directory.Exists(_config.YysRoot) ? _config.YysRoot : AppConfig.DefaultRoot;
-                dlg.ShowNewFolderButton = false;
-                if (dlg.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-                {
-                    string dir = dlg.SelectedPath;
-                    if (!File.Exists(Path.Combine(dir, "bin", "onmyoji.exe")))
-                    {
-                        Log("所选目录未找到 bin\\onmyoji.exe，请重新选择：" + dir);
-                        return;
-                    }
-                    _config.YysRoot = dir;
-                    txtRoot.Text = dir;
-                    string err = _config.Save();
-                    if (err != null) Log("保存配置失败：" + err);
-                    Log("工作目录已设置为：" + dir + "（已保存，下次启动自动加载）");
-                }
-            }
-        }
-
-        private void OpenUsageDoc()
-        {
-            string p = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "使用说明.txt");
-            if (!File.Exists(p))
-            {
-                Log("未找到「使用说明.txt」。");
-                return;
-            }
-            try { Process.Start("notepad.exe", "\"" + p + "\""); }
-            catch (Exception ex) { Log("打开使用说明失败：" + ex.Message); }
+            if (_confirmOverlay == null) return;
+            _confirmOverlay.Visibility = Visibility.Collapsed;
+            TaskCompletionSource<bool> source = _confirmResult;
+            _confirmResult = null;
+            if (source != null) source.TrySetResult(result);
         }
 
         // ==================== 关于弹层 ====================
@@ -653,6 +793,31 @@ namespace OnmyojiTools.Ui
         {
             if (_aboutOverlay == null) return;
             _aboutOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void OpenUsageDoc()
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "使用说明.txt");
+            if (!File.Exists(path))
+            {
+                _logger.Log("未找到「使用说明.txt」。");
+                return;
+            }
+            try { Process.Start("notepad.exe", "\"" + path + "\""); }
+            catch (Exception ex) { _logger.Log("打开使用说明失败：" + ex.Message); }
+        }
+
+        private static bool IsAdministrator()
+        {
+            try
+            {
+                using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
+                {
+                    WindowsPrincipal principal = new WindowsPrincipal(identity);
+                    return principal.IsInRole(WindowsBuiltInRole.Administrator);
+                }
+            }
+            catch { return false; }
         }
     }
 }
