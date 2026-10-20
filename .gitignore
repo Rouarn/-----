@@ -27,3 +27,5 @@ layouts.ini
 placements.ini
 labels.ini
 *.bak
+# 文档（本地保留，不提交）
+docs/
